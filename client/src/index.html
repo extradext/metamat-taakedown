@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folkstyle Arena — Tournament Day</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Folkstyle Arena <span class="demo-tag">DEMO DATA</span></div>
+  <nav class="modemenu" aria-label="Mode">
+    <button data-mode="wrestler" class="on">My Wrestler</button>
+    <button data-mode="spectator">Brackets</button>
+    <button data-mode="studio">Card Studio</button>
+    <button data-mode="guest">Guest Brackets</button>
+    <button data-mode="organizer">Organizer / Table</button>
+  </nav>
+</header>
+<div class="searchrow"><input id="search" type="search" placeholder="Search wrestlers, bouts, clubs, brackets" aria-label="Search"></div>
+<main id="view"></main>
+<footer class="foot"><span id="syncstate">Last updated: just now</span> · <button id="aboutbtn">Architecture / About</button></footer>
+<script src="app.js"></script>
+<script src="studio.js"></script>
+</body>
+</html>

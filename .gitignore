@@ -1,0 +1,21 @@
+node_modules/
+dist/
+app.db
+data/*.json
+!data/.gitkeep
+audit-captures/
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
+# Never commit real children's photos or private data - demo seed only.
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.mov
+*.mp4
+!client/src/placeholder.svg
+coverage/
+.nyc_output/

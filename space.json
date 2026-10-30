@@ -1,0 +1,1 @@
+{"description":"Folkstyle wrestling tournament management platform. Solo build, Meta Global AI Developer Hackathon 2026 (Oct 27 - Nov 4, 2026).","name":"folkstyle-arena","server":{"start":"node server/src/index.js"},"version":"0.1.0"}
