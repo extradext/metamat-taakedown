@@ -34,6 +34,50 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 /** Static file resolution, extracted for testability. Reads bytes BEFORE any
  *  header is written, so a miss can never half-respond. Unknown paths fall
  *  back to index.html (mode menu is client-side). */
+// Display mats are simple numbers: split surface 1A/1B shows as Mat 1/Mat 2.
+// Rule: digit d + letter L -> (d-1)*2 + (A=1, B=2...). Plain digits pass through.
+export function displayMat(raw) {
+  if (raw == null || raw === '') return null;
+  const m = String(raw).match(/^(\d+)([A-Za-z])?$/);
+  if (!m) return String(raw);
+  if (!m[2]) return Number(m[1]);
+  return (Number(m[1]) - 1) * 2 + (m[2].toUpperCase().charCodeAt(0) - 64);
+}
+
+// '2026-11-07' -> 'Sat Nov 7, 2026' (parsed as local parts, never UTC-shifted).
+export function fmtPacketDay(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(iso || '');
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  return `${wd} ${mo} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+// Same sectioning as the app bulletin: [Tag] lines -> labeled sections.
+export function sectionBulletin(lines) {
+  const order = ['Alerts', 'Parking', 'Snacks', 'Raffles', 'Info'];
+  const out = { Alerts: [], Parking: [], Snacks: [], Raffles: [], Info: [] };
+  for (const raw of lines || []) {
+    const m = String(raw).match(/^\[(Alerts?|Parking|Snacks?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
+    let sec = 'Info';
+    let text = String(raw);
+    if (m) {
+      text = m[2];
+      const k = m[1].toLowerCase();
+      sec = k.startsWith('alert') ? 'Alerts' : k.startsWith('park') ? 'Parking'
+        : k.startsWith('snack') ? 'Snacks' : k.startsWith('raffl') ? 'Raffles' : 'Info';
+    } else {
+      const low = text.toLowerCase();
+      if (/alert|urgent|clos|emergency|delay/.test(low)) sec = 'Alerts';
+      else if (/park/.test(low)) sec = 'Parking';
+      else if (/snack|concession|food/.test(low)) sec = 'Snacks';
+      else if (/raffle/.test(low)) sec = 'Raffles';
+    }
+    out[sec].push(text);
+  }
+  return order.filter((s) => out[s].length).map((s) => [s, out[s]]);
+}
 export function resolveStatic(urlPath) {
   const rel = urlPath === '/' ? 'index.html' : urlPath.slice(1).split('?')[0];
   const file = join(CLIENT_DIR, rel);
@@ -108,6 +152,22 @@ export function createApp(db = null) {
     const mine = Object.values(db.guardianLinks).filter((l) => l.account_id === acc.id && l.status === 'approved').map((l) => l.wrestler_id);
     return { wrestlers: mine.map((id) => db.wrestlers[id]).filter(Boolean) };
   });
+  on('GET', '^/api/me/pins$', async ({ req }) => {
+    const acc = authed(req);
+    if (!acc) throw new Error('Sign in to sync pins.');
+    return { pins: acc.pins || {} };
+  });
+  on('POST', '^/api/me/pins$', async ({ req, body }) => {
+    const acc = authed(req);
+    if (!acc) throw new Error('Sign in to sync pins.');
+    const pins = { ...(acc.pins || {}) };
+    for (const [tid, ids] of Object.entries(body.pins || {})) {
+      pins[tid] = [...new Set(ids)].filter((x) => typeof x === 'string').slice(0, 2);
+    }
+    acc.pins = pins;
+    persist();
+    return { pins };
+  });
 
   // ---------- My Wrestler snapshot ----------
   on('GET', '^/api/wrestler/([^/]+)/snapshot$', async ({ req, match, query }) => {
@@ -125,10 +185,14 @@ export function createApp(db = null) {
         .sort((x, y) => x.bout_number - y.bout_number);
       current = all.length > 0 && all[0].id === next.match_id;
     }
-    let rest = { state: 'clear', message: 'Clear to wrestle.' };
+    let rest = { state: 'clear', message: 'Clear to wrestle.', floorMin: null, lastEnd: null };
     if (t) {
       const all = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches);
-      rest = restStatus({ lastBoutEndIso: lastBoutEnd(all, w.id), nowIso: new Date().toISOString(), restFloorMin: t.config.values.restFloorMin });
+      const lastEnd = lastBoutEnd(all, w.id);
+      rest = {
+        ...restStatus({ lastBoutEndIso: lastEnd, nowIso: new Date().toISOString(), restFloorMin: t.config.values.restFloorMin }),
+        floorMin: t.config.values.restFloorMin, lastEnd,
+      };
     }
     const today = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches)
       .filter((m) => m.status === 'completed' && m.result && (m.result.winnerId === w.id || m.result.loserId === w.id));
@@ -191,7 +255,7 @@ export function createApp(db = null) {
         allTime: tallies.allTime[wid] || 0, card: disp ? db.cards[disp.card_id] || null : null,
       };
     });
-    return { tournament: t.name, team, brackets, bulletin: t.bulletin || [], kudos };
+    return { tournament: t.name, date: (t.info && t.info.date) || null, team, brackets, bulletin: t.bulletin || [], kudos };
   });
 
   // ---------- tournaments + brackets (organizer) ----------
@@ -210,7 +274,7 @@ export function createApp(db = null) {
     return {
       tournaments: Object.values(db.tournaments).map((t) => ({
         id: t.id, name: t.name, venue: t.venue || '', status: t.status,
-        mine: !!(acc && ownsTournament(acc, t)),
+        demo: !!t.is_demo, mine: !!(acc && ownsTournament(acc, t)),
       })),
     };
   });
@@ -624,14 +688,23 @@ export function createApp(db = null) {
     const results = [];
     for (const w of Object.values(db.wrestlers)) {
       if (w.name.toLowerCase().includes(q) || w.short_id.includes(q)) {
-        results.push({ kind: 'wrestler', label: `${w.name} · ${w.short_id}` });
+        results.push({ kind: 'wrestler', id: w.id, label: `${w.name} · ${w.short_id}` });
       }
     }
+    const teams = new Set();
     for (const b of Object.values(db.brackets)) {
       if (b.tournament_id !== tid) continue;
-      if (b.division.toLowerCase().includes(q)) results.push({ kind: 'bracket', label: b.division });
+      if (b.division.toLowerCase().includes(q)) results.push({ kind: 'bracket', id: b.id, label: b.division });
       for (const m of b.structure.matches) {
-        if (String(m.bout_number) === q) results.push({ kind: 'bout', label: `Bout ${m.bout_number} · Mat ${m.mat}` });
+        if (String(m.bout_number) === q) results.push({ kind: 'bout', id: m.id, bracketId: b.id, label: `Match ${m.bout_number} · Mat ${displayMat(m.mat)}` });
+      }
+    }
+    for (const r of Object.values(db.registrations)) {
+      if (r.tournament_id !== tid) continue;
+      const team = db.wrestlers[r.wrestler_id]?.team_history?.at(-1)?.team;
+      if (team && team !== 'Unattached' && !teams.has(team)) {
+        teams.add(team);
+        if (team.toLowerCase().includes(q)) results.push({ kind: 'club', id: team, label: team });
       }
     }
     if (acc && ['guardian', 'coach', 'organizer'].includes(acc.role)) {
@@ -772,9 +845,18 @@ export function createApp(db = null) {
     const rows = brackets.flatMap((b) => b.structure.matches.map((m) => {
       const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
       const nm = (id) => (id ? db.wrestlers[id]?.name || 'TBD' : 'TBD');
-      return `<tr><td>${m.bout_number ?? ''}</td><td>${m.mat ?? ''}</td><td>${escH(b.division)}</td><td>${escH(m.round_label)}</td><td>${escH(nm(resolveW(m.slot_a, byId, b.structure.seeds)))}</td><td>${escH(nm(resolveW(m.slot_b, byId, b.structure.seeds)))}</td><td>${m.result ? escH(m.result.outcome) : ''}</td></tr>`;
+      return `<tr><td>${m.bout_number ?? ''}</td><td>${displayMat(m.mat) ?? ''}</td><td>${escH(b.division)}</td><td>${escH(m.round_label)}</td><td>${escH(nm(resolveW(m.slot_a, byId, b.structure.seeds)))}</td><td>${escH(nm(resolveW(m.slot_b, byId, b.structure.seeds)))}</td><td>${m.result ? escH(m.result.outcome) : ''}</td></tr>`;
     })).join('');
-    const day = new Date().toLocaleDateString();
+    // Tournament date comes from settings (t.info.date), never "today": the
+    // packet, bracket headers, Tournament page, and settings all show this.
+    const isoDay = (t.info && t.info.date) || new Date().toISOString().slice(0, 10);
+    const day = fmtPacketDay(isoDay);
+    const regCut = t.info && t.info.regDetails ? ` · Registration: ${t.info.regDetails}` : '';
+    const demoTag = t.is_demo ? ' (DEMO DATA)' : '';
+    // Same labeled sections as the app bulletin (Alerts, Parking, Snacks, Raffles, Info).
+    const bullSecs = sectionBulletin(t.bulletin || []);
+    const bullHtml = bullSecs.map(([sec, items]) =>
+      `<h3>${escH(sec)}</h3>` + items.map((x) => `<p>${escH(x)}</p>`).join('')).join('') || '<p>No announcements.</p>';
     const payload = JSON.stringify({ tournament: t.name, day, sheets: sheetData }).replace(/</g, '\\u003c');
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${escH(t.name)}</title>`
       + `<link rel="stylesheet" href="/styles.css"></head><body class="packet" data-print-layout="full">`
@@ -782,11 +864,11 @@ export function createApp(db = null) {
       + `<button class="chip" data-layout="compact">Multiple per page</button>`
       + `<button class="chip on" data-layout="full">One per page, landscape</button></div>`
       + `<button class="big" id="pprint">Print</button></div>`
-      + `<h1>Emergency packet — ${escH(t.name)} (DEMO DATA)</h1>`
-      + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}</p>`
-      + `<h2>Bulletin</h2><p>${escH((t.bulletin || []).join(' · '))}</p>`
+      + `<h1>Emergency packet — ${escH(t.name)}${demoTag}</h1>`
+      + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}${escH(regCut)}</p>`
+      + `<h2>Bulletin</h2>${bullHtml}`
       + `<div id="sheets"></div>`
-      + `<h2>Mat run-order</h2><table class="runorder"><tr><th>Bout</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
+      + `<h2>Mat run-order</h2><table class="runorder"><tr><th>Match</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
       + `<p>If devices lose power, run on this paper and re-enter results through the exception workflow.</p>`
       + `<script>window.PACKET=${payload}<\/script><script src="/bracket.js"><\/script>`
       + `<script>(function(){var root=document.getElementById('sheets');`

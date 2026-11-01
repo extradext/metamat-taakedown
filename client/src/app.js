@@ -1,14 +1,18 @@
 /* app.js — mode-separated day-of app. No external requests; API only.
    My Wrestler: ONLY selected wrestler, card, up-next, result, warm-up prompt.
    Organizer/Table, Spectator, Guest, About live in their own modes. */
-const S = { mode: 'wrestler', role: 'parent', token: null, account: null, wrestlerId: null, tournamentId: null, cache: {} };
+const S = { mode: 'wrestler', role: 'parent', session: null, token: null, account: null, wrestlerId: null, tournamentId: null, cache: {} };
 try {
   S.tournamentId = localStorage.getItem('fa-tid') || null;
   S.role = localStorage.getItem('fa-role') || 'parent';
   if (!['parent', 'organizer', 'table'].includes(S.role)) S.role = 'parent';
+  S.session = localStorage.getItem('fa-session') || null;
+  if (!['guest', 'demo', 'authed'].includes(S.session)) S.session = null;
 } catch { /* private mode */ }
+function saveSession() { try { localStorage.setItem('fa-session', S.session || ''); } catch { /* private mode */ } }
 function curTid() { return S.tournamentId || 'demo-tournament'; }
 function saveTid(id) { S.tournamentId = id; try { localStorage.setItem('fa-tid', id); } catch { /* private mode */ } }
+window.FA = S; // explicit bridge so Card Studio follows the selected wrestler
 function fmtDur(sec) {
   sec = Math.max(0, Math.round(sec || 0));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -50,6 +54,115 @@ function schoolChip(team) {
   let h = 0;
   for (const c of team) h = (h * 31 + c.charCodeAt(0)) % 997;
   return '<span class="sch sch' + (h % 6) + '">' + esc(team) + '</span>';
+}
+const BULL_SECTIONS = ['Alerts', 'Parking', 'Snacks', 'Raffles', 'Info'];
+function parseBulletin(lines) {
+  const out = { Alerts: [], Parking: [], Snacks: [], Raffles: [], Info: [] };
+  for (const raw of lines || []) {
+    const m = String(raw).match(/^\[(Alerts?|Parking|Snacks?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
+    let sec = 'Info';
+    let text = String(raw);
+    if (m) {
+      text = m[2];
+      const k = m[1].toLowerCase();
+      sec = k.startsWith('alert') ? 'Alerts' : k.startsWith('park') ? 'Parking' : k.startsWith('snack') ? 'Snacks' : k.startsWith('raffl') ? 'Raffles' : 'Info';
+    } else {
+      const low = text.toLowerCase();
+      if (/alert|urgent|clos|emergency|delay/.test(low)) sec = 'Alerts';
+      else if (/park/.test(low)) sec = 'Parking';
+      else if (/snack|concession|food/.test(low)) sec = 'Snacks';
+      else if (/raffle/.test(low)) sec = 'Raffles';
+    }
+    out[sec].push(text);
+  }
+  return out;
+}
+function bulletinHTML(lines) {
+  const g = parseBulletin(lines);
+  const shown = BULL_SECTIONS.filter((s) => g[s].length);
+  if (!shown.length) return '<p>No announcements.</p>';
+  return shown.map((s) => '<h3>' + s + '</h3>' + g[s].map((t) => '<p>' + esc(t) + '</p>').join('')).join('');
+}
+// Display mats are simple numbers: a split surface 1A/1B shows as Mat 1/Mat 2.
+// Rule: digit d + letter L -> (d-1)*2 + (A=1, B=2...). Plain digits pass through.
+function mapMat(raw) {
+  if (raw == null || raw === '') return null;
+  const m = String(raw).match(/^(\d+)([A-Za-z])?$/);
+  if (!m) return String(raw);
+  if (!m[2]) return Number(m[1]);
+  return (Number(m[1]) - 1) * 2 + (m[2].toUpperCase().charCodeAt(0) - 64);
+}
+function matLabel(raw) { const n = mapMat(raw); return n == null ? '—' : 'Mat ' + n; }
+// Tournament-wide mat clock in match numbers (never clock times): the live
+// bout if one is wrestling, else the next upcoming bout number on that mat.
+function matNow(allMatches, mat) {
+  const q = (allMatches || []).filter((m) => m.mat === mat && m.status !== 'completed' && m.bout != null)
+    .sort((x, y) => x.bout - y.bout);
+  if (!q.length) return null;
+  const live = q.find((m) => m.live || m.status === 'in-progress');
+  return { now: (live || q[0]).bout, live: !!live };
+}
+function boutEst(board, nextMatch) {
+  if (!nextMatch || nextMatch.mat == null || nextMatch.bout == null) return null;
+  const all = (board.brackets || []).flatMap((b) => b.matches || []);
+  const now = matNow(all, nextMatch.mat);
+  if (!now) return null;
+  return { mat: mapMat(nextMatch.mat), now: now.now, yours: nextMatch.bout, away: nextMatch.bout - now.now };
+}
+function estStrip(e) {
+  if (!e) return '';
+  const away = e.away <= 0 ? 'on now' : '<b>' + e.away + ' bouts away</b>';
+  return '<div class="eststrip">' + icon('mat') + ' Mat ' + esc(e.mat) + ' · Now: Match ' + esc(e.now)
+    + ' · Your next: Match ' + esc(e.yours) + ' · ' + away + '</div>';
+}
+// '2026-11-07' -> 'Sat Nov 7, 2026' (parsed as local parts, never UTC-shifted).
+function fmtDate(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || '—';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  return wd + ' ' + mo + ' ' + d.getDate() + ', ' + d.getFullYear();
+}
+// Queue position on the match's own mat: first pending = On deck, second = In the hole.
+function queueTag(board, m) {
+  if (!board || m.mat == null || m.bout == null) return null;
+  const q = (board.brackets || []).flatMap((b) => b.matches || [])
+    .filter((x) => x.mat === m.mat && x.status !== 'completed' && !(x.live || x.status === 'in-progress') && x.bout != null)
+    .sort((x, y) => x.bout - y.bout);
+  if (q[0] && q[0].id === m.id) return 'ondeck';
+  if (q[1] && q[1].id === m.id) return 'hole';
+  return null;
+}
+// One status system everywhere: same pills, same icons, same wording.
+function statusPill(m, board) {
+  if (!m) return '';
+  if (m.status === 'completed') return '<span class="pill p-done">' + icon('result') + ' Final</span>';
+  if (m.live || m.status === 'in-progress') return '<span class="pill p-live">' + icon('status') + ' LIVE</span>';
+  const tag = board ? queueTag(board, m) : null;
+  if (tag === 'ondeck') return '<span class="pill p-mid">On deck</span>';
+  if (tag === 'hole') return '<span class="pill p-todo">In the hole</span>';
+  return '<span class="pill p-todo">Upcoming</span>';
+}
+// Deterministic multi-kid proximity: bouts apart + same/different mat, never clock times.
+function proxHTML(mine, c) {
+  const up = (c && c.upcoming) || {};
+  const ids = mine.map((w) => w.id).filter((id) => up[id] && up[id].bout_number != null);
+  if (ids.length < 2) return '';
+  const nm = (id) => (mine.find((w) => w.id === id) || {}).name || 'Wrestler';
+  let html = '';
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const x = up[ids[i]], y = up[ids[j]];
+    const apart = Math.abs(x.bout_number - y.bout_number);
+    const same = x.mat != null && x.mat === y.mat;
+    const alert = (c.alerts || []).find((a) => a.pair && a.pair.includes(ids[i]) && a.pair.includes(ids[j]));
+    const cls = alert && alert.level === 'red' ? 'held' : '';
+    html += '<p class="' + cls + '">' + icon('status') + ' ' + esc(nm(ids[i])) + ' (Mat ' + esc(mapMat(x.mat)) + ', Match ' + esc(x.bout_number) + ')'
+      + ' ↔ ' + esc(nm(ids[j])) + ' (Mat ' + esc(mapMat(y.mat)) + ', Match ' + esc(y.bout_number) + '): '
+      + '<b>' + apart + ' bouts apart</b>, ' + (same ? 'same mat' : 'different mats')
+      + (alert ? ' — ' + esc(alert.message) : '') + '</p>';
+  }
+  return html;
 }
 const PRESET_OPTIONS = [
   ['youth-local', 'Youth Local'], ['usaw-2025-26', 'USAW 2025-26'], ['nfhs-2024-25', 'NFHS 2024-25'],
@@ -99,26 +212,28 @@ function cardTheme(card) {
   const th = card && card.template && card.template.theme;
   return FINISHES.indexOf(th) >= 0 ? th : 'classic';
 }
-function matchupHTML(m) {
+function matchupHTML(m, board) {
   if (!m) return '';
   const done = m.status === 'completed';
   const winA = !!(done && m.wid && m.aid && m.wid === m.aid);
   const winB = !!(done && m.wid && m.bid && m.wid === m.bid);
   const sub = done
     ? icon('result') + ' ' + esc(m.outcome || '') + ' · ' + esc(m.scoreA ?? '–') + '–' + esc(m.scoreB ?? '–')
-    : m.live ? icon('status') + ' In progress · Bout ' + esc(m.bout ?? '?') + ' · Mat ' + esc(m.mat ?? '—')
-    : icon('mat') + ' Bout ' + esc(m.bout ?? '?') + ' · Mat ' + esc(m.mat ?? '—');
+    : m.live ? icon('status') + ' In progress · Match ' + esc(m.bout ?? '?') + ' · ' + matLabel(m.mat)
+    : icon('mat') + ' Match ' + esc(m.bout ?? '?') + ' · ' + matLabel(m.mat);
   return '<div class="matchup">'
     + '<div class="side' + (winA ? ' winnerglow' : '') + '">' + cardFace({ template: { name: m.a } }, true) + '</div>'
     + '<div class="side' + (winB ? ' winnerglow' : '') + '">' + cardFace({ template: { name: m.b } }, true) + '</div>'
-    + '</div><div class="boutmeta">' + sub + '</div>';
+    + '</div><div class="boutmeta">' + statusPill(m, board) + ' ' + sub + '</div>';
 }
 function cardFace(card, mini = false) {
   if (!card) return '<div class="' + (mini ? 'minicard' : 'cardface') + ' fin-classic"><div class="inset"><div class="nameplate"><span>No card yet</span></div><div class="artwin"></div></div><div class="finish" aria-hidden="true"></div></div>';
   const t = card.template || {};
+  const ribbon = card.artIsMock ? '<div class="artribbon">SAMPLE ART</div>' : '';
+  const noart = !mini && !card.art ? '<div class="noart">No photo yet</div>' : '';
   return '<div class="' + (mini ? 'minicard' : 'cardface') + ' fin-' + cardTheme(card) + (t.layout === 'full' ? ' fullpic' : '') + '">'
     + '<div class="inset"><div class="nameplate"><span>' + esc(t.name) + '</span><span class="ed">' + esc(card.edition || '') + '</span></div>'
-    + '<div class="artwin">' + (card.art ? '<img alt="Card art" src="' + card.art + '">' : '') + '</div>'
+    + '<div class="artwin">' + ribbon + noart + (card.art ? '<img alt="Card art" src="' + card.art + '">' : '') + '</div>'
     + '<div class="moves">' + (t.moves || []).map((m) => esc(m)).join('<br>') + '</div>'
     + '<div class="flavor">' + esc(t.flavorLine || '') + '</div></div><div class="finish" aria-hidden="true"></div></div>';
 }
@@ -143,9 +258,9 @@ async function myWrestler() {
   try { snap = await api('/wrestler/' + S.wrestlerId + '/snapshot' + (S.tournamentId ? '?tournamentId=' + S.tournamentId : '')); }
   catch { v.innerHTML = '<div class="panel"><p>Could not load. Check connection.</p></div>'; return; }
   const nx = snap.next || {};
-  const sq2 = nx.current ? '<div class="square now"><span class="k">NEXT BOUT</span><span class="v">NOW · ' + esc(nx.bout_number ?? '') + '</span></div>'
-    : nx.bout_number != null ? '<div class="square"><span class="k">NEXT BOUT</span><span class="v">' + esc(nx.bout_number) + '</span></div>'
-      : '<div class="square"><span class="k">NEXT BOUT</span><span class="v">—</span></div>';
+  const sq2 = nx.current ? '<div class="square now"><span class="k">NEXT MATCH</span><span class="v">NOW · ' + esc(nx.bout_number ?? '') + '</span></div>'
+    : nx.bout_number != null ? '<div class="square"><span class="k">NEXT MATCH</span><span class="v">' + esc(nx.bout_number) + '</span></div>'
+      : '<div class="square"><span class="k">NEXT MATCH</span><span class="v">—</span></div>';
   let board = null;
   try { board = await api('/public/' + (S.tournamentId || 'demo-tournament') + '/spectate'); } catch { /* offline */ }
   const findMatch = (bracketId, matchId) => {
@@ -167,47 +282,70 @@ async function myWrestler() {
     return best;
   };
   const kids = mine.length ? mine : [{ id: S.wrestlerId, name: snap.wrestler.name }];
+  // Hero = the selected wrestler's next bout (or last, when nothing is left).
+  let heroM = snap.next ? findMatch(snap.next.bracket_id, snap.next.match_id) : null;
+  let heroTag = heroM ? (snap.next.current ? 'NOW' : 'UP NEXT') : null;
+  if (!heroM) { heroM = lastDone(S.wrestlerId); heroTag = heroM ? 'LAST BOUT' : null; }
+  const heroEst = heroM && heroTag !== 'LAST BOUT' ? boutEst(board, heroM) : null;
+  const heroOpp = heroM ? (heroM.aid === S.wrestlerId ? heroM.b : heroM.a) : null;
+  const hero = heroM ? '<div class="panel hero"><div class="herotop">' + statusPill(heroM, board)
+    + '<span class="herotag">' + esc(heroTag) + '</span></div>'
+    + '<h2 class="heroname">' + esc(snap.wrestler.name) + '</h2>'
+    + (heroTag !== 'LAST BOUT' && heroOpp ? '<div class="heroopp">vs ' + esc(heroOpp) + ' · Match ' + esc(heroM.bout ?? '?') + ' · ' + matLabel(heroM.mat) + '</div>' : '')
+    + (heroEst ? estStrip(heroEst) : '')
+    + matchupHTML(heroM, board) + '</div>' : '';
   let bouts = '';
   for (const kid of kids) {
-    let s = kid.id === S.wrestlerId ? snap : null;
-    if (!s) { try { s = await api('/wrestler/' + kid.id + '/snapshot' + (S.tournamentId ? '?tournamentId=' + S.tournamentId : '')); } catch { continue; } }
+    if (kid.id === S.wrestlerId) continue; // hero panel above covers the selected wrestler
+    let s = null;
+    try { s = await api('/wrestler/' + kid.id + '/snapshot' + (S.tournamentId ? '?tournamentId=' + S.tournamentId : '')); } catch { continue; }
     let m = s.next ? findMatch(s.next.bracket_id, s.next.match_id) : null;
     let tag = m ? (s.next.current ? 'NOW' : 'UP NEXT') : null;
     if (!m) { m = lastDone(kid.id); tag = m ? 'LAST BOUT' : null; }
     if (!m) continue;
-    bouts += '<div class="panel"><h3>' + esc(tag) + ' · ' + esc(kid.name) + '</h3>' + matchupHTML(m) + '</div>';
+    bouts += '<div class="panel"><h3>' + esc(tag) + ' · ' + esc(kid.name) + '</h3>' + matchupHTML(m, board) + '</div>';
   }
+  const r = snap.rest || {};
+  const restLine = r.state === 'held'
+    ? '<p class="held">' + icon('rest') + ' Rest held — ' + esc(r.message || '') + '</p>'
+    : '<p class="clear">' + icon('result') + ' ' + esc(r.message || 'Clear to wrestle.') + '</p>';
+  const restRule = r.floorMin != null
+    ? '<p class="hint">Rest rule: ' + esc(r.floorMin) + ' min between bouts'
+      + (r.lastEnd ? ' · last bout ended ' + esc(new Date(r.lastEnd).toLocaleTimeString()) : ' · no bouts yet today')
+      + (heroEst && heroEst.away > 0 ? ' · ' + heroEst.away + ' bouts away' : '') + '.</p>' : '';
+  const switcher = mine.length > 1 ? '<div class="panel"><h3>My Wrestlers</h3><div class="chipline" id="kidswitch">'
+    + mine.map((w) => '<button class="chip' + (w.id === S.wrestlerId ? ' on' : '') + '" data-w="' + w.id + '">' + esc(w.name) + '</button>').join('')
+    + '</div><div id="prox"></div><div class="row"><button class="big" id="famlink">Family sharing</button></div></div>' : '';
   v.innerHTML = '<section aria-label="My Wrestler">'
+    + hero + switcher
     + '<div class="panel"><div class="row"><div><h2 style="margin:0">' + avatar(snap.wrestler.name) + ' ' + esc(snap.wrestler.name) + '</h2>'
     + '<div style="color:var(--muted)">Grade ' + esc(snap.wrestler.grade) + '</div>'
     + '<div style="margin-top:6px">' + schoolChip(snap.wrestler.team) + '</div></div>'
-    + '<div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(nx.mat ?? '—') + '</span></div>' + sq2 + '</div></div>'
-    + (snap.rest && snap.rest.state === 'held' ? '<p class="held">' + icon('rest') + ' ' + esc(snap.rest.message) + '</p>' : '<p class="clear">' + icon('result') + ' Clear to wrestle.</p>')
+    + '<div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(nx.mat == null ? '—' : mapMat(nx.mat)) + '</span></div>' + sq2 + '</div></div>'
+    + restLine + restRule
     + '</div>'
     + '<div class="cardframe">' + cardFace(snap.card) + '</div>'
     + bouts
     + '<div class="split">'
-    + ((snap.notes && snap.notes.length) ? '<div class="panel"><h3>Notes</h3><p>' + snap.notes.map((n) => esc(n.body)).join('</p><p>') + '</p></div>' : '')
+    + ((snap.notes && snap.notes.some((n) => n.author_role !== 'coach')) ? '<div class="panel"><h3>Notes</h3><p>' + snap.notes.filter((n) => n.author_role !== 'coach').map((n) => esc(n.body)).join('</p><p>') + '</p></div>' : '')
     + ((snap.coachFeedback && snap.coachFeedback.length) ? '<div class="panel"><h3>From the coach</h3><p>' + snap.coachFeedback.map(esc).join('</p><p>') + '</p></div>' : '')
     + '</div>'
     + '<details class="menu"><summary>More</summary><div class="menubody">'
     + '<div class="panel"><h3>Today</h3><p>' + esc(snap.today || 'No bouts yet today.') + '</p></div>'
     + '<div class="panel"><h3>Warm-up</h3><p>' + esc(pick(WARMUPS)) + '</p>'
     + '<button class="big" id="notew">Add a note for later</button></div>'
-    + (mine.length > 1 ? '<div class="panel"><h3>My Wrestlers</h3><div id="conflicts"></div>' + mine.map((w) =>
-      '<button class="big" data-w="' + w.id + '">' + esc(w.name) + '</button>').join('') + '</div>' : '')
     + '</div></details>'
     + '<p class="encourage">' + esc(pick(ENCOURAGE)) + '</p>'
     + '</section>';
   if (mine.length > 1 && S.token) {
     try {
       const c = await api('/tournaments/' + (S.tournamentId || 'demo-tournament') + '/conflicts?wrestlerIds=' + mine.map((w) => w.id).join(','));
-      const el = document.getElementById('conflicts');
-      if (el && c.alerts.length) el.innerHTML = c.alerts.map((a) =>
-        '<p class="' + (a.level === 'red' ? 'held' : '') + '">' + esc(a.message) + '</p>').join('');
+      const el = document.getElementById('prox');
+      if (el) el.innerHTML = proxHTML(mine, c);
     } catch { /* conflicts unavailable offline */ }
   }
-  document.getElementById('noteW')?.addEventListener('click', () => {});
+  const fam = document.getElementById('famlink');
+  if (fam) fam.onclick = () => setMode('notes');
   const nb = document.getElementById('notew');
   if (nb) nb.onclick = async () => {
     const body = prompt('Note (private to your household and coaches):');
@@ -232,26 +370,79 @@ async function spectator() {
         : '<div class="square"><span class="k">NEXT BOUT</span><span class="v">—</span></div>';
     team += '<div class="teammate">' + avatar(t.name) + '<div class="who">' + esc(t.name)
       + '<div>' + schoolChip(t.team) + '</div>' + (t.held ? '<div class="held">' + icon('rest') + ' HELD — rest</div>' : '')
-      + '</div><div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(t.mat ?? '—') + '</span></div>' + sq2 + '</div></div>';
+      + '</div><div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(t.mat == null ? '—' : mapMat(t.mat)) + '</span></div>' + sq2 + '</div></div>';
   }
   team += '</div>';
   const blist = data.brackets || [];
-  if (S.bracketSel == null || !blist.some((b) => b.id === S.bracketSel)) S.bracketSel = blist[0] && blist[0].id;
+  S.expanded = S.expanded || [];
+  let pins = [];
+  try { pins = (JSON.parse(localStorage.getItem('fa-pins') || '{}')[curTid()] || []); } catch { pins = []; }
+  if (S.token) {
+    try {
+      const sp = await api('/me/pins');
+      if (sp.pins && sp.pins[curTid()]) pins = sp.pins[curTid()];
+    } catch { /* offline: session pins only */ }
+  }
+  pins = pins.filter((id) => blist.some((b) => b.id === id)).slice(0, 2);
+  const parseDiv = (div) => {
+    const m = String(div || '').match(/^(\S+)\s+(\d+\s*-\s*\d+)/);
+    if (m) return { age: m[1], band: m[2].replace(/\s+/g, '') };
+    return { age: String(div || '').split(/\s+/)[0] || 'Open', band: '' };
+  };
+  const rowStatus = (b) => {
+    const ms = b.matches || [];
+    const done = ms.filter((m) => m.status === 'completed').length;
+    const live = ms.filter((m) => m.live || m.status === 'in-progress').length;
+    if (ms.length && done === ms.length) return { t: 'Complete', c: 'done' };
+    if (live) return { t: 'Live ' + live, c: 'live' };
+    if (done) return { t: done + ' of ' + ms.length + ' decided', c: 'mid' };
+    return { t: 'Upcoming', c: 'todo' };
+  };
+  const wcount = (b) => new Set((b.matches || []).flatMap((m) => [m.aid, m.bid]).filter(Boolean)).size;
+  const isComplete = blist.length > 0 && blist.every((b) => (b.matches || []).length > 0 && (b.matches || []).every((m) => m.status === 'completed'));
+  const bracketRow = (b, isPinned) => {
+    const st = rowStatus(b);
+    const band = parseDiv(b.division).band;
+    return '<div class="brow2" data-brow="' + b.id + '">'
+      + '<button class="browmain" data-expand="' + b.id + '" aria-expanded="false"><span class="browtitle">' + icon('weight') + ' ' + esc(b.division) + '</span>'
+      + '<span class="browsub">' + (band ? esc(band) + ' · ' : '') + wcount(b) + ' wrestlers · <span class="pill p-' + st.c + '">' + esc(st.t) + '</span></span></button>'
+      + '<button class="pinbtn' + (isPinned ? ' on' : '') + '" data-pin="' + b.id + '" aria-label="' + (isPinned ? 'Unpin ' : 'Pin ') + esc(b.division) + '">' + (isPinned ? '★' : '☆') + '</button></div>'
+      + '<div class="bracket-sheet" data-mount="' + b.id + '" hidden></div>';
+  };
+  const pinned = pins.map((id) => blist.find((b) => b.id === id)).filter(Boolean);
+  const rest = blist.filter((b) => !pins.includes(b.id));
+  const groups = {};
+  for (const b of rest) {
+    const age = parseDiv(b.division).age;
+    (groups[age] = groups[age] || []).push(b);
+  }
   let brackets = '<div class="panel"><div class="row"><h2 style="margin:0">Brackets</h2>'
-    + '<button class="big" id="brkrefresh" style="margin-left:auto">Refresh</button></div>'
-    + '<div class="chipline" id="brkpicks">' + blist.map((b) =>
-      '<button class="chip' + (b.id === S.bracketSel ? ' on' : '') + '" data-b="' + b.id + '">' + icon('weight') + ' ' + esc(b.division) + '</button>').join('')
-    + '</div><div class="bracket-sheet" id="brkmount"></div></div>';
-  const paintBracket = () => {
-    const mount = document.getElementById('brkmount');
-    if (!mount) return;
-    const b = blist.find((x) => x.id === S.bracketSel) || blist[0];
-    if (!b || !window.Bracket) { mount.innerHTML = '<p>No brackets published yet.</p>'; return; }
+    + '<button class="big" id="brkrefresh" style="margin-left:auto">Refresh</button></div><div id="brkdetail"></div>'
+    + (isComplete ? '<p class="clear">' + icon('result') + ' Tournament complete — results are read-only.</p>' : '')
+    + '<div id="brklist">'
+    + (pinned.length ? '<h3 class="pinhead">Pinned</h3>' + pinned.map((b) => bracketRow(b, true)).join('') : '')
+    + Object.entries(groups).map(([age, arr]) => '<h3>' + esc(age) + '</h3>' + arr.map((b) => bracketRow(b, false)).join('')).join('')
+    + (blist.length ? '' : '<p>No brackets published yet.</p>') + '</div></div>';
+  const paintOne = (id) => {
+    const mount = v.querySelector('[data-mount="' + id + '"]');
+    const b = blist.find((x) => x.id === id);
+    if (!mount || !b || !window.Bracket) return;
+    mount.hidden = false;
     window.Bracket.renderSheet(mount, {
       title: (data.tournament ? data.tournament + ' — ' : '') + b.division,
-      sub: 'Tap Refresh for live results.',
+      sub: (data.date ? fmtDate(data.date) + ' · ' : '') + 'Tap Refresh for live results.',
       format: b.format, matches: b.matches,
     });
+    const btn = v.querySelector('[data-expand="' + id + '"]');
+    if (btn) { btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
+    if (!S.expanded.includes(id)) S.expanded.push(id);
+  };
+  const foldOne = (id) => {
+    const mount = v.querySelector('[data-mount="' + id + '"]');
+    if (mount) { mount.hidden = true; mount.innerHTML = ''; }
+    const btn = v.querySelector('[data-expand="' + id + '"]');
+    if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+    S.expanded = S.expanded.filter((x) => x !== id);
   };
   let galMode = 'per';
   const galHtml = () => '<div class="row"><button class="big" id="gper">This tournament</button><button class="big" id="gall">All time</button></div><div class="kudosgallery">'
@@ -259,15 +450,49 @@ async function spectator() {
       + '<div>' + esc(k.name) + ' · ' + (galMode === 'per' ? k.count : k.allTime) + ' kudos (' + (galMode === 'per' ? 'tournament' : 'all-time') + ')</div>'
       + '<button class="kudosbtn" data-k="' + k.id + '">Give Kudos</button></div>').join('') + '</div>';
   let gal = '<div class="panel"><h2>Sportsmanship Stars</h2><div id="galbody">' + galHtml() + '</div></div>';
-  v.innerHTML = team + brackets + '<div class="panel"><h2>Bulletin</h2><p>' + esc((data.bulletin || []).join(' · ') || 'No announcements.') + '</p></div>' + gal;
-  v.querySelectorAll('#brkpicks [data-b]').forEach((btn) => btn.onclick = () => {
-    S.bracketSel = btn.dataset.b;
-    v.querySelectorAll('#brkpicks .chip').forEach((c) => c.classList.toggle('on', c === btn));
-    paintBracket();
+  v.innerHTML = team + brackets + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(data.bulletin) + '</div>' + gal;
+  v.querySelectorAll('[data-expand]').forEach((btn) => btn.onclick = () => {
+    const id = btn.dataset.expand;
+    const mount = v.querySelector('[data-mount="' + id + '"]');
+    if (mount && mount.hidden) paintOne(id);
+    else foldOne(id);
+  });
+  v.querySelectorAll('[data-pin]').forEach((btn) => btn.onclick = async (e) => {
+    e.stopPropagation();
+    const id = btn.dataset.pin;
+    const next = pins.includes(id) ? pins.filter((p) => p !== id) : [...pins, id];
+    if (next.length > 2) { alert('Unpin one first — two pinned brackets max.'); return; }
+    try {
+      const all = JSON.parse(localStorage.getItem('fa-pins') || '{}');
+      all[curTid()] = next;
+      localStorage.setItem('fa-pins', JSON.stringify(all));
+    } catch { /* no storage */ }
+    if (S.token) {
+      try { await api('/me/pins', { method: 'POST', body: { pins: { [curTid()]: next } } }); } catch { /* offline */ }
+    }
+    spectator();
   });
   const brkrefresh = document.getElementById('brkrefresh');
   if (brkrefresh) brkrefresh.onclick = () => spectator();
-  paintBracket();
+  if (window.Bracket) window.Bracket.setTapHandler((t) => openMatchDetail(data, t.mid));
+  for (const id of [...S.expanded]) paintOne(id);
+  if (S.afterSpectator) {
+    const nav = S.afterSpectator;
+    S.afterSpectator = null;
+    paintOne(nav.expand);
+    requestAnimationFrame(() => {
+      const mount = v.querySelector('[data-mount="' + nav.expand + '"]');
+      if (mount) mount.scrollIntoView({ block: 'start' });
+      if (nav.match) {
+        const el = v.querySelector('[data-mid="' + nav.match + '"]');
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          el.classList.add('flash');
+          setTimeout(() => el.classList.remove('flash'), 2200);
+        }
+      }
+    });
+  }
   const wireKudos = () => v.querySelectorAll('[data-k]').forEach((b) => b.onclick = async () => {
     try { await api('/kudos', { method: 'POST', body: { tournamentId: tid, wrestlerId: b.dataset.k } }); alert('Kudos given — kind words, no votes, no counts on cards.'); spectator(); }
     catch (e) { alert(e.message); }
@@ -509,6 +734,7 @@ function matQueuesHTML(brackets, floorMin) {
   if (!mats.length) return '';
   return '<div class="panel"><h2>' + icon('mat') + ' Mat queues</h2>' + mats.map((mat) => {
     const q = byMat[mat].sort((x, y) => (x.bout ?? 1e9) - (y.bout ?? 1e9));
+    const now = matNow(all, mat);
     const pend = q.filter((m) => !(m.live || m.status === 'in-progress'));
     const rows = q.slice(0, 7).map((m) => {
       const held = heldInfo(m);
@@ -518,10 +744,36 @@ function matQueuesHTML(brackets, floorMin) {
         : m === pend[0] ? '<span class="qstate ondeck">On deck</span>'
         : m === pend[1] ? '<span class="qstate">In the hole</span>'
         : '<span class="qstate">Upcoming</span>';
-      return '<div class="qrow"><span class="qbout">Bout ' + esc(m.bout ?? '?') + '</span><span class="qwho">' + esc(m.a) + ' v ' + esc(m.b) + '</span>' + state + '</div>';
+      return '<div class="qrow"><span class="qbout">Match ' + esc(m.bout ?? '?') + '</span><span class="qwho">' + esc(m.a) + ' v ' + esc(m.b) + '</span>' + state + '</div>';
     }).join('');
-    return '<h3>' + icon('mat') + ' Mat ' + esc(mat) + '</h3>' + rows;
+    return '<h3>' + icon('mat') + ' Mat ' + esc(mapMat(mat)) + (now ? ' · Now: Match ' + esc(now.now) : '') + '</h3>' + rows;
   }).join('') + '</div>';
+}
+
+function openMatchDetail(board, mid) {
+  const mount = document.getElementById('brkdetail');
+  if (!mount) return;
+  if (!mid || !board) { mount.innerHTML = ''; return; }
+  let found = null;
+  for (const b of board.brackets || []) {
+    const m = (b.matches || []).find((x) => x.id === mid);
+    if (m) { found = { b, m }; break; }
+  }
+  if (!found) { mount.innerHTML = ''; return; }
+  const { b, m } = found;
+  const all = board.brackets.flatMap((x) => x.matches || []);
+  const now = m.mat != null ? matNow(all, m.mat) : null;
+  const kidIn = S.wrestlerId && (m.aid === S.wrestlerId || m.bid === S.wrestlerId);
+  const est = kidIn && m.bout != null && now
+    ? { mat: mapMat(m.mat), now: now.now, yours: m.bout, away: m.bout - now.now } : null;
+  mount.innerHTML = '<div class="panel matchdetail"><div class="row"><h3 style="margin:0">' + icon('status') + ' Match detail · ' + esc(b.division) + '</h3>'
+    + '<button class="big" id="mdclose" style="margin-left:auto">Close</button></div>'
+    + matchupHTML(m, board)
+    + (est ? estStrip(est)
+      : now ? '<div class="eststrip">' + icon('mat') + ' Mat ' + esc(mapMat(m.mat)) + ' · Now: Match ' + esc(now.now) + '</div>' : '')
+    + '</div>';
+  document.getElementById('mdclose').onclick = () => { mount.innerHTML = ''; };
+  mount.scrollIntoView({ block: 'nearest' });
 }
 
 /* ---------------- Tournament hub: info, announcements, stats ---------------- */
@@ -545,7 +797,7 @@ async function tournament() {
     + (S.account && S.account.role === 'organizer' && x.mine ? ' · yours' : '') + '</button>').join('') + '</div></div>'
     + '<div class="panel"><h2>' + esc(info.name) + '</h2>'
     + infoRow('Status', info.status) + infoRow('Type', d.type) + infoRow('Venue', info.venue)
-    + infoRow('Date', d.date) + infoRow('Starts', d.startTime) + infoRow('Doors', d.doorsTime)
+    + infoRow('Date', fmtDate(d.date)) + infoRow('Starts', d.startTime) + infoRow('Doors', d.doorsTime)
     + infoRow('Rules', info.rules.presetId + ' (' + info.rules.presetStatus + ')')
     + infoRow('Rest between bouts', info.rules.restFloorMin + ' min')
     + infoRow('Bracket format', FORMAT_LABELS[d.defaultFormat] || d.defaultFormat)
@@ -553,7 +805,7 @@ async function tournament() {
     + infoRow('Tables', d.tables) + infoRow('Referees', d.referees) + infoRow('Head referee', d.headRef)
     + infoRow('Check-in times', d.weighins) + infoRow('Contact', d.contact) + infoRow('Notes', d.notes) + '</div>'
     + (d.raffle ? '<div class="banner"><b>Raffle:</b> ' + esc(d.raffle) + '</div>' : '')
-    + '<div class="panel"><h2>' + icon('status') + ' Announcements</h2>' + ((info.bulletin || []).map((b) => '<p>' + esc(b) + '</p>').join('') || '<p>No announcements.</p>') + '</div>';
+    + '<div class="panel"><h2>' + icon('status') + ' Announcements</h2>' + bulletinHTML(info.bulletin) + '</div>';
   if (stats) {
     html += '<div class="panel"><h2>' + icon('result') + ' Day stats</h2><div class="statgrid">'
       + statCell('Matches wrestled', stats.matchesWrestled + ' / ' + stats.matchesTotal)
@@ -582,12 +834,16 @@ async function notesView() {
   const v = document.getElementById('view');
   if (!S.account) {
     v.innerHTML = '<div class="panel"><h2>Notes</h2><p>Notes are household-private. Continue as the demo parent to see them.</p>'
-      + '<div class="row"><button class="big primary" id="notelogin">Continue as Demo Parent</button></div></div>';
-    document.getElementById('notelogin').onclick = async () => {
+      + '<div id="notemsg"></div><div class="row"><button class="big primary" id="notelogin">Continue as Demo Parent</button></div></div>';
+    document.getElementById('notelogin').onclick = async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Loading…';
       try {
         const r = await api('/auth/login', { method: 'POST', body: { accountId: 'acc-guardian' } });
         S.token = r.token; S.account = r.account; notesView();
-      } catch (e) { alert(e.message); }
+      } catch (err) {
+        e.target.disabled = false; e.target.textContent = 'Continue as Demo Parent';
+        document.getElementById('notemsg').innerHTML = '<p class="held">' + esc(err.message) + '</p>';
+      }
     };
     return;
   }
@@ -611,7 +867,33 @@ async function notesView() {
       + '<label>Add a note</label><textarea id="note-' + w.id + '" rows="2"></textarea>'
       + '<div class="row"><button class="big primary" data-note="' + w.id + '">Save note</button></div></div>';
   }
+  if (S.account && S.account.role === 'guardian') {
+    html += '<div class="panel"><h2>Family sharing</h2>'
+      + '<label>Share a wrestler with family</label><div class="row"><select id="sharewho">'
+      + mine.map((w) => '<option value="' + w.id + '">' + esc(w.name) + '</option>').join('') + '</select>'
+      + '<button class="big" id="sharego">Create invite</button></div><div id="sharemsg"></div>'
+      + '<label>Accept a family invite</label><div class="row"><input id="accepttok" type="text" placeholder="Invite code">'
+      + '<button class="big" id="acceptgo">Accept</button></div><div id="acceptmsg"></div></div>';
+  }
   v.innerHTML = html;
+  const sharego = document.getElementById('sharego');
+  if (sharego) sharego.onclick = async () => {
+    const msg = document.getElementById('sharemsg');
+    try {
+      const inv = await api('/sharing/invite', { method: 'POST', body: { wrestlerId: document.getElementById('sharewho').value } });
+      msg.innerHTML = '<p>Invite code: <b>' + esc(inv.token) + '</b> (expires ' + esc(inv.expires_at) + '). The other guardian enters it under Accept.</p>';
+    } catch (e) { msg.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
+  };
+  const acceptgo = document.getElementById('acceptgo');
+  if (acceptgo) acceptgo.onclick = async () => {
+    const msg = document.getElementById('acceptmsg');
+    const token = document.getElementById('accepttok').value.trim();
+    if (!token) return;
+    try {
+      await api('/sharing/accept', { method: 'POST', body: { token } });
+      msg.innerHTML = '<p class="clear">Linked — their wrestler now shows in your list.</p>';
+    } catch (e) { msg.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
+  };
   v.querySelectorAll('[data-note]').forEach((b) => b.onclick = async () => {
     const body = document.getElementById('note-' + b.dataset.note).value.trim();
     if (!body) return;
@@ -647,12 +929,12 @@ async function tableView() {
   document.getElementById('ttable2').onclick = () => tableMode();
 }
 
-/* ---------------- Guest Bracket Generator (same engine, same print) ---------------- */
+/* ---------------- Bracket Generator (same engine, same print) ---------------- */
 async function guest() {
   const v = document.getElementById('view');
   let gseed = 'entered', glayout = 'compact';
-  v.innerHTML = '<div class="panel noprint"><h2>Guest Bracket Generator</h2><p>Free, no account. Same deterministic engine and same print renderer as tournament brackets.</p>'
-    + '<label>Print title (tournament name)</label><input id="gtitle" type="text" value="Guest Bracket">'
+  v.innerHTML = '<div class="panel noprint"><h2>Bracket Generator</h2><p>Free, no account. Same deterministic engine and same print renderer as tournament brackets.</p>'
+    + '<label>Print title (tournament name)</label><input id="gtitle" type="text" value="Bracket Generator">'
     + '<label>Names (one per line)</label><textarea id="gnames" rows="8">Avery\nBlake\nCasey\nDevon\nEmery\nFinley</textarea>'
     + '<label>Seeding</label><div class="chipline" id="gseed">'
     + '<button class="chip on" data-seed="entered">As entered</button>'
@@ -683,7 +965,7 @@ async function guest() {
     gout.dataset.printLayout = glayout;
     gout.innerHTML = '<div class="bracket-sheet" id="guestsheet"></div>'
       + '<div class="row noprint"><button class="big primary" id="gprint">Print bracket</button></div>';
-    const title = document.getElementById('gtitle').value.trim() || 'Guest Bracket';
+    const title = document.getElementById('gtitle').value.trim() || 'Bracket Generator';
     window.Bracket.renderSheet(document.getElementById('guestsheet'), {
       title,
       sub: new Date().toLocaleDateString() + ' · ' + names.length + ' wrestlers · ' + out.matches.length + ' bouts — fill in scores by hand',
@@ -698,9 +980,31 @@ async function guest() {
 
 /* ---------------- About (organizer/developer honesty panel) ---------------- */
 async function about() {
+  const modal = document.getElementById('modal');
+  modal.hidden = false;
+  modal.innerHTML = '<div class="modalcard" role="dialog" aria-label="About"><h2>About</h2><div class="loading"><div class="skel"></div></div></div>';
   let st = { mode: 'unknown' };
   try { st = await api('/meta/status'); } catch { /* offline */ }
-  alert('Provider status: ' + st.flag + ' — ' + st.mode + '. ' + (st.note || '') + ' Models: ' + JSON.stringify(st.models || {}));
+  let srcline = 'Data source: unavailable offline.';
+  try {
+    const list = (await api('/tournaments')).tournaments || [];
+    const demos = list.filter((t) => t.demo).map((t) => t.name);
+    const real = list.filter((t) => !t.demo).map((t) => t.name);
+    srcline = 'Data: ' + (demos.length ? 'DEMO DATA (' + demos.join(', ') + ')' : 'no demo')
+      + ' · ' + (real.length ? 'Real tournaments: ' + real.join(', ') : 'no real tournaments');
+  } catch { /* offline */ }
+  const live = st.mode === 'real';
+  modal.innerHTML = '<div class="modalcard" role="dialog" aria-modal="true" aria-label="About">'
+    + '<h2>Architecture / About</h2>'
+    + '<p><span class="pill ' + (live ? 'p-done' : 'p-todo') + '">' + (live ? 'LIVE — real Meta API' : 'MOCK — development fallback') + '</span></p>'
+    + infoRow('Provider flag', st.flag || '—')
+    + infoRow('Models', st.models ? Object.values(st.models).join(', ') : '—')
+    + '<p>' + esc(st.note || '') + '</p>'
+    + '<p>' + esc(srcline) + '</p>'
+    + '<p>Card art: generated image, uploaded photo, or a labeled SAMPLE ART placeholder — check the ribbon on each card.</p>'
+    + '<div class="row"><button class="big primary" id="modalclose">Close</button></div></div>';
+  document.getElementById('modalclose').onclick = () => { modal.hidden = true; };
+  modal.onclick = (e) => { if (e.target === modal) modal.hidden = true; };
 }
 
 const ROLE_TABS = {
@@ -709,19 +1013,95 @@ const ROLE_TABS = {
   table: ['table', 'spectator', 'tournament', 'notes'],
 };
 const ROLE_DEMO_ACCOUNT = { parent: 'acc-guardian', organizer: 'acc-organizer', table: 'acc-table1' };
+const GUEST_TABS = ['spectator', 'tournament', 'guest'];
+const GUEST_OK = ['spectator', 'tournament', 'guest', 'landing'];
+function tabsFor() { return S.session === 'guest' ? GUEST_TABS : (ROLE_TABS[S.role] || ROLE_TABS.parent); }
+function paintSession() {
+  const chip = document.getElementById('sessionchip');
+  const label = S.session === 'guest' ? 'Guest' : S.session === 'demo' ? 'DEMO' : S.account ? S.account.name : '';
+  chip.hidden = !label;
+  chip.textContent = label;
+}
 function setMode(mode) {
+  if (S.session === 'guest' && !GUEST_OK.includes(mode)) { guestBlocked(mode); return; }
   S.mode = mode;
+  document.body.classList.toggle('landing', mode === 'landing');
   document.querySelectorAll('.modemenu button[data-mode], #menupanel button[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   document.getElementById('menupanel').hidden = true;
   document.getElementById('menubtn').setAttribute('aria-expanded', 'false');
-  ({ wrestler: myWrestler, spectator, tournament, notes: notesView, organizer, table: tableView, guest, studio: () => window.Studio?.open() })[mode]();
+  paintSession();
+  ({ landing, wrestler: myWrestler, spectator, tournament, notes: notesView, organizer, table: tableView, guest, studio: () => window.Studio?.open() })[mode]();
+}
+function guestBlocked(mode) {
+  S.mode = mode;
+  paintSession();
+  const v = document.getElementById('view');
+  v.innerHTML = '<div class="panel"><h2>Guests can\'t open that</h2><p>Guests get public views and the Bracket Generator. The rest needs the demo or sign-in.</p>'
+    + '<div class="row"><button class="big primary" id="gbdemo">Continue as Demo</button><button class="big" id="gbback">Back</button></div></div>';
+  document.getElementById('gbdemo').onclick = (e) => startSession('demo', e.target);
+  document.getElementById('gbback').onclick = () => setMode('spectator');
 }
 function applyRole() {
-  const tabs = ROLE_TABS[S.role] || ROLE_TABS.parent;
+  const tabs = tabsFor();
   document.querySelectorAll('.modemenu button[data-mode]').forEach((b) => { b.hidden = !tabs.includes(b.dataset.mode); });
   document.querySelectorAll('.roleswitch [data-role]').forEach((b) => b.classList.toggle('on', b.dataset.role === S.role));
+  document.querySelector('.roleswitch').hidden = S.session === 'guest';
   if (!tabs.includes(S.mode) && !['studio', 'guest'].includes(S.mode)) setMode(tabs[0]);
-  else setMode(S.mode);
+  else setMode(S.mode === 'landing' ? tabs[0] : S.mode);
+}
+async function startSession(kind, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  document.getElementById('view').innerHTML = '<div class="loading" aria-live="polite"><div class="skel"></div><p>Loading…</p></div>';
+  S.session = kind; saveSession();
+  S.role = 'parent';
+  try { localStorage.setItem('fa-role', 'parent'); } catch { /* private mode */ }
+  if (kind === 'demo') {
+    try {
+      const r = await api('/auth/login', { method: 'POST', body: { accountId: 'acc-guardian' } });
+      S.token = r.token; S.account = r.account;
+    } catch { S.token = null; S.account = null; }
+  } else {
+    S.token = null; S.account = null;
+  }
+  applyRole();
+}
+async function bootSession() {
+  if (!S.session) { setMode('landing'); return; }
+  if (S.session === 'demo' && !S.token) {
+    try {
+      const r = await api('/auth/login', { method: 'POST', body: { accountId: 'acc-guardian' } });
+      S.token = r.token; S.account = r.account;
+    } catch { /* offline: views degrade gracefully */ }
+  }
+  applyRole();
+}
+function landing() {
+  const v = document.getElementById('view');
+  v.innerHTML = '<div class="panel landhero"><h2>Folkstyle Arena</h2><p>Tournament day: wrestlers, brackets, mats, and cards.</p></div>'
+    + '<div class="panel"><button class="big primary landbtn" id="landemo">Continue as Demo</button>'
+    + '<p class="hint">The full demo tournament. Clearly labeled DEMO DATA on every page.</p></div>'
+    + '<div class="panel"><button class="big landbtn" id="languest">Continue as Guest</button>'
+    + '<p class="hint">Public views and the Bracket Generator only. No saved profile or private notes. Labeled Guest.</p></div>'
+    + '<div class="panel"><button class="big landbtn" id="lansign">Sign in</button>'
+    + '<p class="hint">Demo session roles for demo purposes only — this repo has no real authentication backend.</p></div>';
+  document.getElementById('landemo').onclick = (e) => startSession('demo', e.target);
+  document.getElementById('languest').onclick = (e) => startSession('guest', e.target);
+  document.getElementById('lansign').onclick = () => signinView();
+}
+function signinView() {
+  const v = document.getElementById('view');
+  v.innerHTML = '<div class="panel"><h2>Sign in</h2>'
+    + '<p class="held">Demo only: no real authentication backend exists in this repo. These are session roles for demo purposes — not secure accounts.</p>'
+    + '<div class="row"><button class="big primary" data-srole="parent">Parent</button>'
+    + '<button class="big" data-srole="organizer">Organizer</button>'
+    + '<button class="big" data-srole="table">Table Worker</button></div>'
+    + '<div class="row"><button class="big" id="backland">Back</button></div></div>';
+  v.querySelectorAll('[data-srole]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    S.session = 'authed'; saveSession();
+    await setRole(b.dataset.srole);
+  });
+  document.getElementById('backland').onclick = () => setMode('landing');
 }
 async function setRole(role) {
   S.role = role;
@@ -742,12 +1122,40 @@ document.getElementById('menubtn').onclick = () => {
 };
 document.getElementById('aboutbtn').onclick = about;
 document.getElementById('aboutbtn2').onclick = about;
+document.getElementById('switchsession').onclick = () => {
+  S.session = null; saveSession();
+  S.token = null; S.account = null; S.role = 'parent';
+  try { localStorage.setItem('fa-role', 'parent'); } catch { /* private mode */ }
+  setMode('landing');
+};
 document.getElementById('search').addEventListener('change', async (e) => {
-  const q = e.target.value.trim(); if (!q) return;
+  const q = e.target.value.trim();
+  const box = document.getElementById('searchresults');
+  if (!q) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = '<div class="panel"><p>Searching…</p></div>';
   try {
     const r = await api('/search?q=' + encodeURIComponent(q) + (S.tournamentId ? '&tournamentId=' + S.tournamentId : ''));
-    alert('Matches: ' + r.results.map((x) => x.label).join(' · '));
-  } catch (err) { alert(err.message); }
+    const res = r.results || [];
+    if (!res.length) { box.innerHTML = '<div class="panel"><p>No matches for “' + esc(q) + '”.</p></div>'; return; }
+    box.innerHTML = '<div class="panel"><h3>Results</h3>' + res.map((x, i) =>
+      '<button class="srrow" data-sr="' + i + '"><span class="srkind">' + esc(x.kind) + '</span><span>' + esc(x.label) + '</span></button>').join('') + '</div>';
+    box.querySelectorAll('[data-sr]').forEach((b) => b.onclick = () => {
+      const x = res[Number(b.dataset.sr)];
+      box.hidden = true;
+      if (x.kind === 'wrestler' && x.id) { S.wrestlerId = x.id; setMode('wrestler'); }
+      else if (x.kind === 'bracket' && x.id) { S.afterSpectator = { expand: x.id, match: null }; setMode('spectator'); }
+      else if (x.kind === 'bout' && x.bracketId) { S.afterSpectator = { expand: x.bracketId, match: x.id }; setMode('spectator'); }
+      else if (x.kind === 'club') { setMode('spectator'); }
+      else if (x.kind === 'note') { setMode('notes'); }
+    });
+  } catch (err) { box.innerHTML = '<div class="panel"><p>' + esc(err.message) + '</p></div>'; }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  document.getElementById('modal').hidden = true;
+  document.getElementById('menupanel').hidden = true;
+  document.getElementById('searchresults').hidden = true;
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-applyRole();
+bootSession();

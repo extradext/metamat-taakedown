@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-10-31 — **72 tests, 20 suites, 72 pass, 0 fail** (70 prior + 2 new: stoppage-clock snapshot/stats derivation, tournament ownership).
+Last full run: 2026-11-01 — **78 tests, 23 suites, 78 pass, 0 fail** (72 prior + 6 new: display-mat mapping, packet-day formatting, sectioned-bulletin grouping).
 
 ## Coverage by spec area
 
@@ -39,6 +39,9 @@ Last full run: 2026-10-31 — **72 tests, 20 suites, 72 pass, 0 fail** (70 prior
   shows HOW it works — synthetic, not proof); insufficient-evidence;
   Madison properties + determinism; confirmed-conflict + alternatives.
 - **Static serving:** mode menu, MIME types, fallback, traversal block.
+- **Display projections:** split-surface → simple mat numbers (1A/1B→1/2…);
+  ISO settings date → readable day without UTC shift; bulletin [Tag] lines →
+  Alerts/Parking/Snacks/Raffles/Info sections with keyword fallback.
 - **End-to-end smoke** (`server/tests/e2e.local.js`, loopback-only, run
   manually — not part of `npm test`): boot, login ×4 roles, snapshot,
   clock-in, live score, finalize, rest HOLD at finalize, kudos cap + guest

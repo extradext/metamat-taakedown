@@ -70,12 +70,19 @@ window.Bracket = (() => {
     return { name: 'TBD', tbd: true };
   }
 
+  function mapMat(raw) {
+    if (raw == null || raw === '') return null;
+    var m = String(raw).match(/^(\d+)([A-Za-z])?$/);
+    if (!m) return String(raw);
+    if (!m[2]) return Number(m[1]);
+    return (Number(m[1]) - 1) * 2 + (m[2].toUpperCase().charCodeAt(0) - 64);
+  }
   function metaLine(m) {
     var parts = [];
     if (m.status === 'completed') parts.push('FINAL · ' + (m.outcome || 'result'));
     else if (m.live) parts.push('IN PROGRESS');
-    if (m.bout != null) parts.push('Bout ' + m.bout);
-    if (m.mat != null) parts.push('Mat ' + m.mat);
+    if (m.bout != null) parts.push('Match ' + m.bout);
+    if (mapMat(m.mat) != null) parts.push('Mat ' + mapMat(m.mat));
     if (!parts.length) parts.push(m.status === 'completed' ? 'FINAL' : 'Upcoming');
     return parts.join(' · ');
   }
@@ -125,22 +132,30 @@ window.Bracket = (() => {
     }).join('');
     return '<div class="brk-scroll"><div class="brk"><svg class="brk-wires" aria-hidden="true"></svg>'
       + colHTML + '</div></div>'
-      + '<p class="pathhint">Tap a wrestler to follow their path through the bracket.</p>';
+      + '<p class="pathhint">Tap a wrestler to see the match detail and follow their path.</p>';
   }
 
   function tableHTML(o) {
     var rows = o.matches.map(function (m) {
-      var res = m.status === 'completed'
+      var done = m.status === 'completed';
+      var res = done
         ? esc((m.outcome || 'FINAL') + (m.scoreA != null && m.scoreB != null ? ' ' + m.scoreA + '-' + m.scoreB : ''))
         : (m.live ? 'In progress' : 'Upcoming');
-      return '<tr><td>' + esc(m.bout ?? '') + '</td><td>' + esc(m.mat ?? '') + '</td><td>' + esc(m.round || '') + '</td>'
+      var cls = done ? 'done' : (m.live ? 'live' : 'todo');
+      var mat = mapMat(m.mat);
+      return '<tr data-mid="' + esc(m.id) + '" data-aid="' + esc(m.aid || '') + '" data-bid="' + esc(m.bid || '') + '">'
+        + '<td>' + esc(m.bout ?? '') + '</td><td>' + esc(mat == null ? '' : mat) + '</td><td>' + esc(m.round || '') + '</td>'
         + '<td>' + esc(m.a || 'TBD') + '</td><td>' + esc(m.scoreA ?? '') + '</td>'
-        + '<td>' + esc(m.scoreB ?? '') + '</td><td>' + esc(m.b || 'TBD') + '</td><td>' + res + '</td></tr>';
+        + '<td>' + esc(m.scoreB ?? '') + '</td><td>' + esc(m.b || 'TBD') + '</td>'
+        + '<td><span class="pill p-' + cls + '">' + res + '</span></td></tr>';
     }).join('');
-    return '<div class="brk-scroll"><table class="scores rrtable"><tr><th>Bout</th><th>Mat</th><th>Round</th>'
-      + '<th colspan="2">Red</th><th colspan="2">Green</th><th>Result</th></tr>' + rows + '</table></div>';
+    return '<div class="brk-scroll"><table class="scores rrtable"><tr><th>Match</th><th>Mat</th><th>Round</th>'
+      + '<th colspan="2">Red</th><th colspan="2">Green</th><th>Result</th></tr>' + rows + '</table></div>'
+      + '<p class="pathhint">Tap a row to see the match detail and follow the path.</p>';
   }
 
+  var tapHook = null;
+  function setTapHandler(fn) { tapHook = fn; }
   function sheetHTML(o) {
     var head = '<div class="sheethead"><div><h3>' + esc(o.title) + '</h3>'
       + (o.sub ? '<div class="sheetsub">' + esc(o.sub) + '</div>' : '') + '</div>'
@@ -151,9 +166,15 @@ window.Bracket = (() => {
 
   function renderSheet(mount, o) {
     mount.innerHTML = sheetHTML(o);
+    mount._matches = o.matches;
     var brk = mount.querySelector('.brk');
     if (brk) { brk._matches = o.matches; drawWires(brk); }
     return mount;
+  }
+  function sheetMatches(sheet) {
+    var brk = sheet.querySelector('.brk');
+    if (brk && brk._matches) return brk._matches;
+    return sheet._matches || [];
   }
 
   function drawWires(scope) {
@@ -202,9 +223,11 @@ window.Bracket = (() => {
     if (!wid) return;
     sheet._pathWid = wid;
     sheet.querySelectorAll('.brow[data-wid="' + wid + '"]').forEach(function (el) { el.classList.add('path-on'); });
-    var brk = sheet.querySelector('.brk');
+    sheet.querySelectorAll('tr[data-aid]').forEach(function (tr) {
+      if (tr.getAttribute('data-aid') === wid || tr.getAttribute('data-bid') === wid) tr.classList.add('path-on');
+    });
     var byId = {};
-    ((brk && brk._matches) || []).forEach(function (m) { byId[m.id] = m; });
+    sheetMatches(sheet).forEach(function (m) { byId[m.id] = m; });
     sheet.querySelectorAll('.wire').forEach(function (p) {
       var a = byId[p.getAttribute('data-from')]; var b = byId[p.getAttribute('data-to')];
       var inA = a && (a.aid === wid || a.bid === wid);
@@ -215,16 +238,40 @@ window.Bracket = (() => {
 
   function initPathClicks() {
     document.addEventListener('click', function (e) {
-      var row = e.target && e.target.closest ? e.target.closest('.bracket-sheet .brow[data-wid]') : null;
-      var sheet = e.target && e.target.closest ? e.target.closest('.bracket-sheet') : null;
+      if (!e.target || !e.target.closest) return;
+      var sheet = e.target.closest('.bracket-sheet');
       if (!sheet) return;
-      if (!row || !row.getAttribute('data-wid')) {
-        if (!e.target.closest('.brow')) clearPath(sheet);
+      var row = e.target.closest('.bracket-sheet .brow[data-wid]');
+      var rrow = e.target.closest('.rrtable tr[data-mid]');
+      if (row && row.getAttribute('data-wid')) {
+        var wid = row.getAttribute('data-wid');
+        var holder = row.closest('[data-mid]');
+        var mid = holder && holder.getAttribute('data-mid');
+        if (sheet._pathWid === wid) {
+          clearPath(sheet);
+          if (tapHook) tapHook({ sheet: sheet, wid: null, mid: null });
+        } else {
+          followPath(sheet, wid);
+          if (tapHook) tapHook({ sheet: sheet, wid: wid, mid: mid });
+        }
         return;
       }
-      var wid = row.getAttribute('data-wid');
-      if (sheet._pathWid === wid) clearPath(sheet);
-      else followPath(sheet, wid);
+      if (rrow) {
+        var rmid = rrow.getAttribute('data-mid');
+        clearPath(sheet);
+        rrow.classList.add('path-on');
+        sheet.querySelectorAll('tr[data-aid]').forEach(function (tr) {
+          var a = rrow.getAttribute('data-aid'); var bb = rrow.getAttribute('data-bid');
+          if (tr !== rrow && ((a && (tr.getAttribute('data-aid') === a || tr.getAttribute('data-bid') === a))
+            || (bb && (tr.getAttribute('data-aid') === bb || tr.getAttribute('data-bid') === bb)))) tr.classList.add('path-on');
+        });
+        if (tapHook) tapHook({ sheet: sheet, wid: rrow.getAttribute('data-aid') || null, mid: rmid });
+        return;
+      }
+      if (!e.target.closest('.brow')) {
+        clearPath(sheet);
+        if (tapHook) tapHook({ sheet: sheet, wid: null, mid: null });
+      }
     });
   }
 
@@ -266,5 +313,5 @@ window.Bracket = (() => {
 
   initPathClicks();
   initAuto();
-  return { renderSheet: renderSheet, drawWires: drawWires, fitForPrint: fitForPrint, unfitForPrint: unfitForPrint };
+  return { renderSheet: renderSheet, drawWires: drawWires, fitForPrint: fitForPrint, unfitForPrint: unfitForPrint, setTapHandler: setTapHandler };
 })();

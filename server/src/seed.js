@@ -13,7 +13,7 @@ import { generateDoubleElim, generateRoundRobin, resolveWrestler as resolveW } f
 import { register, checkin, setHouseholdPin, tableInput, scoreMatch, giveKudos } from './tournament.js';
 import { buildArtPrompt, mockArt } from './meta.js';
 
-const DEMO_VERSION = 2;
+const DEMO_VERSION = 3;
 const TID = 'demo-tournament';
 
 const SCHOOLS = [
@@ -33,6 +33,9 @@ const MOVE_SETS = [
   ['Snapdown', 'Stand-up', 'Half Nelson'],
   ['Double Leg', 'Spiral Ride', 'Cradle'],
   ['Single Leg', 'Sit-out', 'Bar Arm'],
+  ['Fireman’s Carry', 'Switch', 'Bow and Arrow'],
+  ['Duck Under', 'Granby Roll', 'Peterson'],
+  ['Ankle Pick', 'Hip Heist', 'Crossface Cradle'],
 ];
 const HEROES = ['Tiger cub', 'Robot', 'Dragon'];
 
@@ -81,11 +84,13 @@ function purgeDemo(db) {
   db.historical = [];
 }
 
-function assignMats(struct, mats) {
+// Bout numbers are tournament-wide and unique (never repeat across divisions).
+function assignMats(struct, mats, startBout) {
   struct.matches.forEach((m, i) => {
     m.mat = mats[i % mats.length];
-    m.bout_number = i + 1;
+    m.bout_number = startBout + i;
   });
+  return startBout + struct.matches.length;
 }
 
 // Complete one demo bout through the real scoring path (gates enforced).
@@ -104,9 +109,9 @@ function seedResult(db, bracketId, match, pick, outcome, wPts, lPts, offsetMin, 
   match.demo_offset_min = offsetMin;
 }
 
-function seedDE(db, bracketId, division, seedIds, mats, d) {
+function seedDE(db, bracketId, division, seedIds, mats, d, startBout) {
   const struct = generateDoubleElim({ bracketId, seeds: seedIds });
-  assignMats(struct, mats);
+  const next = assignMats(struct, mats, startBout);
   db.brackets[bracketId] = { id: bracketId, tournament_id: TID, division, format: 'double-elim', status: 'published', structure: struct };
   const wb1 = struct.matches.filter((m) => m.round_label === 'WB-1');
   const r2 = struct.matches.filter((m) => m.round_label === 'WB-2');
@@ -126,11 +131,29 @@ function seedDE(db, bracketId, division, seedIds, mats, d) {
   seedResult(db, bracketId, r2[0], pick(4), 'decision', 5, 3, 8, { clockSec: 360 });
   // Consol opener between two long-clear losers.
   seedResult(db, bracketId, c1[0], pick(5), 'tech-fall', 18, 3, 45, { clockSec: 280 });
+  return next;
 }
 
-function seedRR(db, bracketId, division, seedIds, mats) {
+// Fully-decided 4-man division: a completed-tournament example with a champion.
+function seedDEComplete(db, bracketId, division, seedIds, mats, startBout) {
+  const struct = generateDoubleElim({ bracketId, seeds: seedIds });
+  const next = assignMats(struct, mats, startBout);
+  db.brackets[bracketId] = { id: bracketId, tournament_id: TID, division, format: 'double-elim', status: 'published', structure: struct };
+  const outs = [
+    ['decision', 6, 2], ['major', 11, 3], ['decision', 4, 1],
+    ['pin', 6, 0], ['major', 12, 4], ['decision', 7, 3],
+  ];
+  struct.matches.forEach((m, k) => {
+    const [outcome, wPts, lPts] = outs[k];
+    seedResult(db, bracketId, m, k % 2 === 0 ? 'a' : 'b', outcome, wPts, lPts,
+      300 - k * 25, { clockSec: 240 + k * 10 });
+  });
+  return next;
+}
+
+function seedRR(db, bracketId, division, seedIds, mats, startBout) {
   const struct = generateRoundRobin({ bracketId, seeds: seedIds });
-  assignMats(struct, mats);
+  const next = assignMats(struct, mats, startBout);
   db.brackets[bracketId] = { id: bracketId, tournament_id: TID, division, format: 'round-robin', status: 'published', structure: struct };
   const r1 = struct.matches.filter((m) => m.round_label === 'RR ROUND 1');
   const r2 = struct.matches.filter((m) => m.round_label === 'RR ROUND 2');
@@ -143,6 +166,7 @@ function seedRR(db, bracketId, division, seedIds, mats) {
     seedResult(db, bracketId, m, k % 2 === 0 ? 'a' : 'b', outcome, wPts, lPts,
       [120, 110, 100, 90, 60, 50][k], { clockSec: 200 + k * 20 + (outcome === 'pin' ? -105 : 0), bloodSec: k === 2 ? 40 : 0 });
   });
+  return next;
 }
 
 function seedCards(db, wrestlers) {
@@ -205,10 +229,10 @@ export function buildDemo(db) {
   mk('acc-coach', 'coach', 'Coach Cam', null);
   mk('acc-spectator', 'spectator', 'Spectator Sam', null);
 
-  // 34 wrestlers: 4 schools x 8 + 2 unattached.
+  // 38 wrestlers: 4 schools x 9 + 2 unattached late entries.
   const specs = [];
-  for (let i = 0; i < 32; i++) specs.push({ name: demoName(i), grade: GRADES[i % 3], team: SCHOOLS[i % 4].name });
-  specs.push({ name: demoName(32), grade: '5', team: null }, { name: demoName(33), grade: '6', team: null });
+  for (let i = 0; i < 36; i++) specs.push({ name: demoName(i), grade: GRADES[i % 3], team: SCHOOLS[i % 4].name });
+  specs.push({ name: demoName(36), grade: '5', team: null }, { name: demoName(37), grade: '6', team: null });
   const wrestlers = specs.map((s, i) => createWrestler(db, {
     name: s.name, grade: s.grade, team: s.team, skill: SKILLS[i % 4],
     skillSource: 'guardian', guardianIds: (i === 0 || i === 4) ? ['acc-guardian'] : [], isDemo: true,
@@ -222,22 +246,32 @@ export function buildDemo(db) {
   db.tournaments[TID] = {
     id: TID, name: 'Demo Youth Open', venue: 'Demo Fieldhouse, Mat Hall',
     status: 'published', config, config_version: 1, is_demo: true, demoVersion: DEMO_VERSION,
-    bulletin: ['Welcome to the Demo Youth Open!', 'Weigh-ins close at 8:30 AM.', '50/50 raffle drawing at finals!'],
+    bulletin: [
+      '[Info] Welcome to the Demo Youth Open!',
+      '[Info] Check-in closes at 8:30 AM.',
+      '[Parking] Park in the north lot — the south lot is buses only.',
+      '[Snacks] Concessions all day by the main entrance.',
+      '[Raffle] 50/50 raffle — drawing at finals! Tickets $5.',
+      '[Alert] Mat 6 starts 30 minutes late.',
+    ],
     organizerIds: ['acc-organizer'], info: { ...DEMO_INFO },
     created_at: new Date().toISOString(),
   };
   // Register + check in everyone (Path A completed). Weights by division band.
   wrestlers.forEach((w, i) => {
-    const band = i < 8 ? 65 : i < 16 ? 76 : i < 24 ? 87 : 70;
+    const band = i < 8 ? 65 : i < 16 ? 76 : i < 24 ? 87 : i < 32 ? 70 : 100;
     const wt = band + (i % 8);
     register(db, TID, w.id, { weight: wt, actor: 'seed' });
     checkin(db, TID, w.id, { weighinWeight: wt, skinCheck: 'pass', by: 'seed-staff', actor: 'seed' });
   });
   const ids = wrestlers.map((w) => w.id);
-  seedDE(db, 'demo-de-bantam', 'Bantam 65-75', ids.slice(0, 8), ['1A', '1B'], 0);
-  seedDE(db, 'demo-de-midget', 'Midget 76-86', ids.slice(8, 16), ['2A', '2B'], 1);
-  seedDE(db, 'demo-de-junior', 'Junior 87-97', ids.slice(16, 24), ['3A', '3B'], 2);
-  seedRR(db, 'demo-rr', 'Novice Round-Robin', ids.slice(24, 32), ['1A', '1B']);
+  let bout = 1;
+  bout = seedDE(db, 'demo-de-bantam', 'Bantam 65-75', ids.slice(0, 8), ['1A', '1B'], 0, bout);
+  bout = seedDE(db, 'demo-de-midget', 'Midget 76-86', ids.slice(8, 16), ['2A', '2B'], 1, bout);
+  bout = seedDE(db, 'demo-de-junior', 'Junior 87-97', ids.slice(16, 24), ['3A', '3B'], 2, bout);
+  bout = seedRR(db, 'demo-rr', 'Novice Round-Robin', ids.slice(24, 32), ['1A', '1B'], bout);
+  bout = seedDEComplete(db, 'demo-de-exhib', 'Exhibition 100-110', ids.slice(32, 36), ['2A', '2B'], bout);
+  void bout;
   seedCards(db, wrestlers);
   seedNotes(db, wrestlers);
   // Kudos from three identified givers (cap respected).

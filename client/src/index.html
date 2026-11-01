@@ -10,14 +10,15 @@
 <body>
 <header class="topbar">
   <div class="toprow">
-    <div class="brand">Folkstyle Arena <span class="demo-tag">DEMO DATA</span></div>
+    <div class="brand">Folkstyle Arena <span class="demo-tag">DEMO DATA</span> <span class="sessionchip" id="sessionchip" hidden></span></div>
     <div class="menuwrap">
       <button id="menubtn" aria-haspopup="true" aria-expanded="false">Menu</button>
       <div id="menupanel" hidden>
         <button data-mode="studio">Card Studio</button>
-        <button data-mode="guest">Guest Brackets</button>
+        <button data-mode="guest">Bracket Generator</button>
         <label class="menuitem navsearch" for="search">Search</label>
         <button id="aboutbtn2">Architecture / About</button>
+        <button id="switchsession">Switch session</button>
       </div>
     </div>
   </div>
@@ -35,9 +36,12 @@
   <button data-mode="notes">Notes</button>
   <button data-mode="organizer">Organizer</button>
   <button data-mode="table">Table</button>
+  <button data-mode="guest">Bracket Generator</button>
 </nav>
 <div class="searchrow"><input id="search" type="search" placeholder="Search wrestlers, bouts, clubs, brackets" aria-label="Search"></div>
-<main id="view"></main>
+<div id="searchresults" hidden></div>
+<main id="view"><div class="loading" aria-live="polite"><div class="skel"></div><div class="skel short"></div><p>Loading Folkstyle Arena…</p></div></main>
+<div id="modal" hidden></div>
 <footer class="foot"><span id="syncstate">Last updated: just now</span> · <button id="aboutbtn">Architecture / About</button></footer>
 <script src="bracket.js"></script>
 <script src="app.js"></script>

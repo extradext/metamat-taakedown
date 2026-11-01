@@ -1,6 +1,6 @@
 /* sw.js — cached read access: My Wrestler, next bout, bracket view work from
    cache when the network drops. Stale data is labelled stale, never live. */
-const CACHE = 'arena-v5';
+const CACHE = 'arena-v6';
 const CORE = ['index.html', 'styles.css', 'app.js', 'studio.js', 'bracket.js'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
