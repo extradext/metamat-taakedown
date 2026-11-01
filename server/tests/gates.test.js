@@ -10,8 +10,9 @@ import {
   generateDoubleElim, recordResult, readyMatches, resolveWrestler as resolveW,
 } from '../src/engine.js';
 import {
-  register, checkin, scoreMatch, giveKudos, kudosTallies, createCardEvent, setOnDisplay,
+  register, checkin, scoreMatch, tableInput, giveKudos, kudosTallies, createCardEvent, setOnDisplay,
   mintMilestone, setHouseholdPin, checkHouseholdPin, clockIn, clockOut, KUDOS_CAP,
+  tournamentStats, ownsTournament,
 } from '../src/tournament.js';
 import { encodeHistory, decodeHistory } from '../src/encoding.js';
 import { providerStatus, validateProposedProfile, mockWonderParse } from '../src/meta.js';
@@ -278,10 +279,13 @@ describe('mode separation (static guards on shipped client source)', () => {
       assert.ok(!banned || !spec.includes(banned), `Spectator must not contain "${banned}"`);
     }
   });
-  it('Card Studio entries land on the PIN lock, labelled a household gate', () => {
-    assert.ok(studioJs.includes('household gate'));
-    assert.ok(studioJs.includes('NOT account security'));
-    assert.ok(studioJs.includes('/api/studio/unlock'));
+  it('Card Studio opens directly: no lock screen, PIN gate, cover, or lock option', () => {
+    for (const banned of ['lockScreen', 'household gate', 'NOT account security', '/api/studio/unlock',
+      'Unlock Studio', 'studio-lock', 'blurActive', 'locktoggle', 'Set PIN', 'Household PIN']) {
+      assert.ok(!studioJs.includes(banned), `studio must not contain "${banned}"`);
+    }
+    assert.ok(studioJs.includes('async function open()'), 'studio has a direct open entry');
+    assert.ok(studioJs.includes('studio-live'), 'open renders the studio directly');
   });
   it('all five modes exist behind an explicit switch, no debug strings', () => {
     for (const m of ['wrestler', 'spectator', 'studio', 'guest', 'organizer']) {
@@ -315,5 +319,44 @@ describe('provider honesty: mock by default, loud when real is misconfigured', (
     const sample = '<0f>0<|box;x1=353;y1=382;x2=453;y2=427;w=537;h=561|><|mask;x=0;y=0;data=46,101,~...|>';
     assert.deepEqual(parseSamBoxes(sample), [{ x1: 353, y1: 382, x2: 453, y2: 427, w: 537, h: 561 }]);
     assert.deepEqual(parseSamBoxes('no boxes here'), []);
+  });
+});
+
+describe('tournament stats: stoppage clocks survive finalize; stats derive read-only', () => {
+  it('scoreMatch snapshots final_clocks; stats count pins, blood, minutes, schools', () => {
+    const db = blank();
+    db.tournaments['t1'] = { id: 't1', config: createTournamentConfig(db, { presetId: 'youth-local', overrides: {} }) };
+    const a = createWrestler(db, { name: 'A', grade: '5', team: 'River Club' });
+    const b = createWrestler(db, { name: 'B', grade: '5' }); // unattached
+    for (const w of [a, b]) {
+      register(db, 't1', w.id, {});
+      checkin(db, 't1', w.id, { weighinWeight: 70, skinCheck: 'pass', by: 't' });
+    }
+    const struct = generateDoubleElim({ bracketId: 'br', seeds: [a.id, b.id] });
+    struct.matches[0].mat = '1A';
+    db.brackets['br'] = { id: 'br', tournament_id: 't1', structure: struct };
+    const mid = struct.matches[0].id;
+    tableInput(db, 't1', 'br', mid, { clockSec: 95, bloodSec: 30, injurySec: 0 });
+    const m = scoreMatch(db, 't1', 'br', mid,
+      { outcome: 'pin', winnerId: a.id, loserId: b.id, scoreA: 6, scoreB: 0 }, { actor: 't' });
+    assert.deepEqual(m.final_clocks, { clockSec: 95, injurySec: 0, bloodSec: 30 });
+    assert.equal(m.result.outcome, 'pin'); // result itself unchanged
+    const s = tournamentStats(db, 't1');
+    assert.equal(s.matchesWrestled, 1);
+    assert.equal(s.pins, 1);
+    assert.equal(s.clockSec, 95);
+    assert.equal(s.bloodSec, 30);
+    assert.equal(s.mats, 1);
+    assert.equal(s.schools, 1);
+    assert.equal(s.unattached, 1);
+    assert.equal(s.wrestlers, 2);
+    assert.deepEqual(s.fastestPin, { name: 'A', sec: 95 });
+  });
+  it('ownership: linked organizers only; legacy open tournaments stay editable', () => {
+    assert.equal(ownsTournament({ id: 'o1', role: 'organizer' }, { organizerIds: ['o1'] }), true);
+    assert.equal(ownsTournament({ id: 'o2', role: 'organizer' }, { organizerIds: ['o1'] }), false);
+    assert.equal(ownsTournament({ id: 'o2', role: 'organizer' }, {}), true);
+    assert.equal(ownsTournament({ id: 't1', role: 'table' }, {}), false);
+    assert.equal(ownsTournament(null, {}), false);
   });
 });

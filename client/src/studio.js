@@ -1,70 +1,23 @@
 /* studio.js — Spotlight Card Studio. Creation spotlight, NOT the landing page.
-   Household PIN gate on every entry (device-local household gate — NOT account
-   security). Card stays stationary; ONE scrollable tray beneath it. Touch-only
-   tilt/zoom/pan on the card; page scrolls when touching outside the card. */
+   Opens directly in one tap: no lock screen, no PIN, no cover. Card stays
+   stationary; ONE scrollable tray beneath it. Touch-only tilt/zoom/pan on
+   the card; page scrolls when touching outside the card. */
 window.Studio = (() => {
-  let unlockedUntil = 0;
   const S = () => ({ token: null });
-
-  function lockScreen(v, next) {
-    v.innerHTML = '<div class="lockbox"><h2>Card Studio is locked</h2>'
-      + '<p>This is a household gate on this device — NOT account security, NOT a guarantee a child cannot guess it.</p>'
-      + '<label>Household PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="off">'
-      + '<button class="big primary" id="unlock">Unlock Studio</button>'
-      + '<p><button id="pinreset">Forgot PIN? Reset with your signed-in account</button></p></div>';
-    document.getElementById('unlock').onclick = async () => {
-      const pin = document.getElementById('pin').value;
-      try {
-        const r = await fetch('/api/studio/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'Wrong PIN');
-        unlockedUntil = Date.now() + 15 * 60000;
-        next();
-      } catch (e) { alert(e.message); }
-    };
-    document.getElementById('pinreset').onclick = async () => {
-      const np = prompt('New PIN (4+ digits) — resets through your signed-in account:');
-      if (!np) return;
-      await fetch('/api/studio/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: np }) });
-      alert('PIN reset. No PIN is ever shown in logs or on screen.');
-    };
-  }
 
   async function open() {
     const v = document.getElementById('view');
-    if (Date.now() > unlockedUntil) { lockScreen(v, open); return; }
     let album = { cards: [], onDisplay: null };
     try {
       const r = await fetch('/api/studio/album?wrestlerId=demo');
       album = await r.json();
     } catch { /* offline */ }
-    // Blur-when-wrestling (OPTIONAL parent setting, default off): when a
-    // household kid is on the mat / on deck / in the hole, start blurred.
-    try {
-      const wid = (album.cards[0] && album.cards[0].wrestler_id) || '';
-      const st = await fetch('/api/studio/status?wrestlerIds=' + wid).then((r) => r.json());
-      if (st.blurActive) {
-        v.innerHTML = '<div class="banner">' + esc(st.reason) + '</div>'
-          + '<div class="blurred"><div class="cardframe"><div class="cardface"><div class="inset"></div></div></div></div>'
-          + '<div class="lockbox"><p>Card Studio starts blurred while they wrestle (your setting).</p>'
-          + '<button class="big primary" id="unlock2">Unlock with household PIN</button>'
-          + '<p>Or open for a set time:</p><div class="row">'
-          + [5, 10, 15, 30, 60].map((m) => '<button class="big" data-sz="' + m + '">' + m + ' min</button>').join('') + '</div></div>';
-        document.getElementById('unlock2').onclick = () => { lockScreen(v, open); };
-        v.querySelectorAll('[data-sz]').forEach((b) => b.onclick = async () => {
-          const r = await fetch('/api/studio/snooze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ minutes: Number(b.dataset.sz) }) });
-          const d = await r.json();
-          if (!r.ok) { alert(d.error || 'Sign in as a guardian to set the timer.'); return; }
-          alert(d.label);
-          open();
-        });
-        return;
-      }
-    } catch { /* status unavailable offline */ }
     const shown = album.cards.find((c) => c.id === album.onDisplay) || album.cards[0];
+    const shownName = (shown && shown.template && shown.template.name) || 'Your Wrestler';
     v.innerHTML = '<section class="studio-live" aria-label="Spotlight Card Studio">'
       + '<div class="cardframe"><div id="livecard"></div></div>'
-      + '<div class="tray"><div class="chipline" id="chips"></div>'
+      + '<div class="tray"><div class="trayhead"><span>' + esc(shownName) + '</span><span class="sub">Spotlight Card Studio</span></div>'
+      + '<div class="chipline" id="chips"></div>'
       + '<div class="row"><button class="big primary" id="create">CREATE</button><button class="big" id="addphoto">ADD PHOTO</button></div>'
       + '<div id="traybody"></div>'
       + '<h3>Album</h3><div class="albumgrid" id="album"></div>'
@@ -88,13 +41,16 @@ window.Studio = (() => {
     };
   }
 
+  const FINISHES = ['classic', 'shiny', 'fire', 'ice', 'lightning'];
   function renderLiveCard(card) {
     const t = (card && card.template) || { name: 'Your Wrestler', moves: ['Snapdown', 'Stand-up', 'Half Nelson'], flavorLine: 'Card flavour — not wrestling ability.' };
-    document.getElementById('livecard').innerHTML = '<div class="cardface"><div class="inset">'
-      + '<div class="nameplate"><span>' + esc(t.name) + '</span><span></span></div>'
+    const th = (card && card.template && card.template.theme) || 'classic';
+    const fin = FINISHES.indexOf(th) >= 0 ? th : 'classic';
+    document.getElementById('livecard').innerHTML = '<div class="cardface fin-' + fin + '"><div class="inset">'
+      + '<div class="nameplate"><span>' + esc(t.name) + '</span><span class="ed">' + esc((card && card.edition) || '') + '</span></div>'
       + '<div class="artwin">' + (card && card.art ? '<img alt="Card art" src="' + card.art + '">' : '') + '</div>'
-      + '<div class="moves">' + (t.moves || []).join('<br>') + '</div>'
-      + '<div class="flavor">' + esc(t.flavorLine || '') + '</div></div></div>';
+      + '<div class="moves">' + (t.moves || []).map(esc).join('<br>') + '</div>'
+      + '<div class="flavor">' + esc(t.flavorLine || '') + '</div></div><div class="finish" aria-hidden="true"></div></div>';
   }
   function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
@@ -111,14 +67,29 @@ window.Studio = (() => {
     const shuffled = [...QSETS].sort(() => Math.random() - 0.5).slice(0, 4);
     b.innerHTML = '<label>Favorite color</label><input id="qcolor" type="text" value="blue">'
       + '<label>Favorite animal</label><input id="qanimal" type="text" value="tiger">'
+      + '<p>Card style</p><div class="chipline" id="finpick">' + FINISHES.map((f) =>
+        '<button class="chip' + (f === 'classic' ? ' on' : '') + '" data-fin="' + f + '">' + f[0].toUpperCase() + f.slice(1) + '</button>').join('') + '</div>'
+      + '<p class="hint">Palette follows your favorite color.</p>'
       + shuffled.map((s, i) => '<p>' + s.q + '</p><div class="chipline">' + s.a.map((a) =>
         '<button class="chip" data-q="' + i + '">' + a + '</button>').join('') + '</div>').join('')
       + '<div class="row"><button class="big" id="shuffle">Shuffle</button><button class="big primary" id="make">Make my cards</button></div>';
     const picks = {};
+    let finPick = 'classic';
+    const liveCard = () => document.querySelector('.studio-live .cardface');
     b.querySelectorAll('[data-q]').forEach((c) => c.onclick = () => { picks[c.dataset.q] = c.textContent; c.classList.add('on'); });
+    b.querySelectorAll('[data-fin]').forEach((c) => c.onclick = () => {
+      finPick = c.dataset.fin;
+      b.querySelectorAll('[data-fin]').forEach((x) => x.classList.toggle('on', x === c));
+      const live = liveCard();
+      if (live) live.className = live.className.replace(/fin-\w+/g, '').replace(/\s+/g, ' ').trim() + ' fin-' + finPick;
+    });
+    document.getElementById('qcolor').oninput = (e) => {
+      const live = liveCard();
+      if (live) live.style.setProperty('--card-accent', e.target.value);
+    };
     document.getElementById('shuffle').onclick = questionnaire;
     document.getElementById('make').onclick = async () => {
-      const answers = { color: document.getElementById('qcolor').value, animal: document.getElementById('qanimal').value, style: 'classic', picks };
+      const answers = { color: document.getElementById('qcolor').value, animal: document.getElementById('qanimal').value, style: finPick, picks };
       const r = await fetch('/api/studio/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers }) });
       const d = await r.json();
       if (!r.ok) { alert(d.error || 'Could not create'); return; }

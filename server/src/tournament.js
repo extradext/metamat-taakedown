@@ -123,7 +123,13 @@ export function scoreMatch(db, tournamentId, bracketId, matchId, result, { actor
       throw new Error(`bout cap: ${db.wrestlers[id]?.name || id} already wrestled ${n} bouts today (cap ${t.config.values.boutCapPerDay})`);
     }
   }
+  // Preserve stoppage clocks for stats (recordResult clears live_score).
+  // Additive snapshot only — the result itself is untouched.
+  const clocks = match.live_score
+    ? { clockSec: match.live_score.clockSec || 0, injurySec: match.live_score.injurySec || 0, bloodSec: match.live_score.bloodSec || 0 }
+    : null;
   recordResult(struct, matchId, result, { actor, at: nowIso });
+  if (clocks) match.final_clocks = clocks;
   db.matchEvents[newId()] = {
     id: newId(), tournament_id: tournamentId, match_id: matchId, kind: 'result',
     payload: result, actor, created_at: nowIso,
@@ -164,6 +170,83 @@ export function undoPlay(db, tournamentId, bracketId, matchId, { actor = 'table'
   if (undone.side === 'green') match.live_score.green -= undone.points;
   audit(db, { tournamentId, actor, action: 'table.undo', payload: { matchId, undone } });
   return { live: match.live_score, undone };
+}
+
+// ---------- tournament spaces: ownership, editable info, read-only stats ----------
+// Tournaments never mix: every read below is scoped to one tournament id.
+
+export function ownsTournament(acc, t) {
+  if (!acc || acc.role !== 'organizer' || !t) return false;
+  if (!t.organizerIds || t.organizerIds.length === 0) return true; // legacy/open
+  return t.organizerIds.includes(acc.id);
+}
+
+// Editable tournament info fields (guided setup + settings editor). Rules and
+// results are NOT in here — they keep their own workflows.
+export const TOURNAMENT_INFO_FIELDS = [
+  'type', 'defaultFormat', 'date', 'startTime', 'doorsTime', 'fee', 'regDetails',
+  'tables', 'referees', 'headRef', 'weighins', 'raffle', 'contact', 'notes',
+];
+
+export function setTournamentInfo(db, tid, patch, { actor = 'organizer' } = {}) {
+  const t = db.tournaments[tid];
+  if (!t) throw new Error('tournament not found');
+  t.info = t.info || {};
+  for (const k of TOURNAMENT_INFO_FIELDS) {
+    if (patch[k] !== undefined) t.info[k] = patch[k];
+  }
+  if (patch.name !== undefined) t.name = patch.name;
+  if (patch.venue !== undefined) t.venue = patch.venue;
+  audit(db, { tournamentId: tid, actor, action: 'tournament.info', payload: { keys: Object.keys(patch) } });
+  return t;
+}
+
+// Read-only derived stats for the tournament hub. Blood/injury/match clocks
+// come from preserved final_clocks (plus live clocks in progress).
+export function tournamentStats(db, tid) {
+  const brackets = Object.values(db.brackets).filter((b) => b.tournament_id === tid);
+  const matches = brackets.flatMap((b) => b.structure.matches);
+  const done = matches.filter((m) => m.status === 'completed' && m.result);
+  const outcomes = {};
+  let points = 0, clockSec = 0, bloodSec = 0, injurySec = 0, fastestPin = null;
+  for (const m of done) {
+    const o = m.result.outcome;
+    outcomes[o] = (outcomes[o] || 0) + 1;
+    points += (m.result.scoreA || 0) + (m.result.scoreB || 0);
+    const fc = m.final_clocks || {};
+    clockSec += fc.clockSec || 0; bloodSec += fc.bloodSec || 0; injurySec += fc.injurySec || 0;
+    if (o === 'pin' && (fc.clockSec || 0) > 0 && (!fastestPin || fc.clockSec < fastestPin.sec)) {
+      fastestPin = { sec: fc.clockSec, name: db.wrestlers[m.result.winnerId]?.name || '?' };
+    }
+  }
+  for (const m of matches) {
+    if (m.status !== 'completed' && m.live_score) {
+      clockSec += m.live_score.clockSec || 0;
+      bloodSec += m.live_score.bloodSec || 0;
+      injurySec += m.live_score.injurySec || 0;
+    }
+  }
+  const mats = [...new Set(matches.map((m) => m.mat).filter(Boolean))].sort();
+  const regs = Object.values(db.registrations).filter((r) => r.tournament_id === tid);
+  const teams = new Map();
+  let unattached = 0;
+  for (const r of regs) {
+    const w = db.wrestlers[r.wrestler_id];
+    const team = w?.team_history?.at(-1)?.team || 'Unattached';
+    if (!w || team === 'Unattached') unattached++;
+    else teams.set(team, (teams.get(team) || 0) + 1);
+  }
+  return {
+    matchesWrestled: done.length, matchesTotal: matches.length, brackets: brackets.length,
+    pins: outcomes.pin || 0, techFalls: outcomes['tech-fall'] || 0, majors: outcomes.major || 0,
+    decisions: outcomes.decision || 0, injuryDefaults: outcomes['injury-default'] || 0,
+    forfeits: (outcomes.forfeit || 0) + (outcomes['medical-forfeit'] || 0) + (outcomes.default || 0)
+      + (outcomes.dq || 0) + (outcomes['no-show'] || 0),
+    mats: mats.length, matList: mats,
+    clockSec, bloodSec, injurySec,
+    schools: teams.size, schoolList: [...teams.keys()].sort(),
+    unattached, wrestlers: regs.length, points, fastestPin,
+  };
 }
 
 // ---------- kudos: 3 per identified giver per tournament, server-side ----------

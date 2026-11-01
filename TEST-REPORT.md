@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-10-30 — **70 tests, 19 suites, 70 pass, 0 fail.**
+Last full run: 2026-10-31 — **72 tests, 20 suites, 72 pass, 0 fail** (70 prior + 2 new: stoppage-clock snapshot/stats derivation, tournament ownership).
 
 ## Coverage by spec area
 

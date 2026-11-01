@@ -18,6 +18,7 @@ import {
   register, checkin, scoreMatch, tableInput, undoPlay, giveKudos, kudosTallies,
   createCardEvent, setOnDisplay, mintMilestone, clockIn, clockOut, setHouseholdPin, checkHouseholdPin,
   createInvite, acceptInvite, approveGuardian, kidConflicts, nextBoutFor,
+  tournamentStats, ownsTournament, setTournamentInfo, TOURNAMENT_INFO_FIELDS,
 } from './tournament.js';
 import { assess, evaluateGrouping, alternativeGrouping, madisonGroups } from './matching.js';
 import { encodeHistory } from './encoding.js';
@@ -134,7 +135,7 @@ export function createApp(db = null) {
     const disp = db.onDisplay[w.id];
     const notes = visibleNotes(tid, w.id, authed(req));
     return {
-      wrestler: { id: w.id, name: w.name, grade: w.grade, short_id: w.short_id },
+      wrestler: { id: w.id, name: w.name, grade: w.grade, short_id: w.short_id, team: w.team_history?.at(-1)?.team || 'Unattached' },
       card: disp ? db.cards[disp.card_id] || null : null,
       next: next ? { ...next, current } : null, rest,
       notes: notes.map((n) => ({ body: n.body, scope: n.scope, author_role: n.author_role, at: n.created_at })),
@@ -156,17 +157,29 @@ export function createApp(db = null) {
       const nx = nextBoutFor(db, tid, r.wrestler_id);
       const all = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches);
       const st = restStatus({ lastBoutEndIso: lastBoutEnd(all, r.wrestler_id), nowIso: new Date().toISOString(), restFloorMin: t.config.values.restFloorMin });
-      return { id: w.id, name: w.name, mat: nx?.mat ?? null, nextBout: nx?.bout_number ?? null, current: false, held: st.state === 'held' };
+      return { id: w.id, name: w.name, team: w.team_history?.at(-1)?.team || 'Unattached', mat: nx?.mat ?? null, nextBout: nx?.bout_number ?? null, current: false, held: st.state === 'held' };
     });
     const brackets = Object.values(db.brackets).filter((b) => b.tournament_id === tid).map((b) => ({
-      division: b.division, format: b.format,
+      id: b.id, division: b.division, format: b.format,
       matches: b.structure.matches.map((m) => {
         const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
         const nm = (id) => (id ? db.wrestlers[id]?.name || 'TBD' : 'TBD');
+        const aid = resolveW(m.slot_a, byId, b.structure.seeds);
+        const bid = resolveW(m.slot_b, byId, b.structure.seeds);
+        // Advancement refs for bracket wires (presentation): which prior match
+        // feeds each slot, via winner-advance or loser-drop. Read-only view.
+        const feed = (ref) => (ref && (ref.t === 'w' || ref.t === 'l') && byId[ref.m])
+          ? { from: ref.m, via: ref.t } : null;
         return {
           label: `${m.round_label}${m.mat ? ` · Mat ${m.mat}` : ''}${m.bout_number ? ` · Bout ${m.bout_number}` : ''}`,
-          a: nm(resolveW(m.slot_a, byId, b.structure.seeds)), b: nm(resolveW(m.slot_b, byId, b.structure.seeds)),
+          a: nm(aid), b: nm(bid),
           result: m.result ? `${db.wrestlers[m.result.winnerId]?.name} (${m.result.outcome})` : null,
+          id: m.id, round: m.round_label, side: m.bracket_side, status: m.status,
+          bout: m.bout_number, mat: m.mat, aid, bid, ended: m.ended_at || null,
+          scoreA: m.result?.scoreA ?? null, scoreB: m.result?.scoreB ?? null,
+          outcome: m.result?.outcome || null, wid: m.result?.winnerId || null,
+          live: m.status !== 'completed' && m.live_score != null,
+          feedA: feed(m.slot_a), feedB: feed(m.slot_b),
         };
       }),
     }));
@@ -178,7 +191,7 @@ export function createApp(db = null) {
         allTime: tallies.allTime[wid] || 0, card: disp ? db.cards[disp.card_id] || null : null,
       };
     });
-    return { team, brackets, bulletin: t.bulletin || [], kudos };
+    return { tournament: t.name, team, brackets, bulletin: t.bulletin || [], kudos };
   });
 
   // ---------- tournaments + brackets (organizer) ----------
@@ -191,13 +204,59 @@ export function createApp(db = null) {
     if (!out.ok) throw new Error(`Setup needs review: ${out.errors.join('; ')}`);
     return { profile: out.profile, warnings: out.warnings, provider: out.provider, isMock: out.isMock };
   });
+  // ---------- tournament spaces: list, info hub, setup, stats (scoped per id) ----------
+  on('GET', '^/api/tournaments$', async ({ req }) => {
+    const acc = authed(req);
+    return {
+      tournaments: Object.values(db.tournaments).map((t) => ({
+        id: t.id, name: t.name, venue: t.venue || '', status: t.status,
+        mine: !!(acc && ownsTournament(acc, t)),
+      })),
+    };
+  });
+  on('GET', '^/api/tournaments/([^/]+)/info$', async ({ match }) => {
+    const t = db.tournaments[match[1]];
+    if (!t) throw new Error('tournament not found');
+    return {
+      id: t.id, name: t.name, venue: t.venue || '', status: t.status,
+      info: t.info || {}, bulletin: t.bulletin || [],
+      rules: { presetId: t.config.presetId, presetStatus: t.config.presetStatus, restFloorMin: t.config.values.restFloorMin },
+    };
+  });
+  on('GET', '^/api/tournaments/([^/]+)/stats$', async ({ match }) => {
+    if (!db.tournaments[match[1]]) throw new Error('tournament not found');
+    return tournamentStats(db, match[1]);
+  });
+  on('GET', '^/api/tournaments/([^/]+)/setup$', async ({ req, match }) => {
+    const acc = need(req, 'organizer');
+    const t = db.tournaments[match[1]];
+    if (!t) throw new Error('tournament not found');
+    if (!ownsTournament(acc, t)) { const e = new Error("Only this tournament's organizer can edit its setup."); e.status = 403; throw e; }
+    return {
+      id: t.id, name: t.name, venue: t.venue || '', status: t.status,
+      info: t.info || {}, presetId: t.config.presetId, presetStatus: t.config.presetStatus,
+      values: t.config.values, configVersion: t.config.version,
+    };
+  });
+  on('POST', '^/api/tournaments/([^/]+)/info$', async ({ req, match, body }) => {
+    const acc = need(req, 'organizer');
+    const t = db.tournaments[match[1]];
+    if (!t) throw new Error('tournament not found');
+    if (!ownsTournament(acc, t)) { const e = new Error("Only this tournament's organizer can edit its setup."); e.status = 403; throw e; }
+    setTournamentInfo(db, t.id, body || {}, { actor: acc.id });
+    persist();
+    return { ok: true };
+  });
   on('POST', '^/api/tournaments$', async ({ req, body }) => {
     const acc = need(req, 'organizer');
     const config = createTournamentConfig(db, { presetId: body.presetId || 'youth-local', overrides: body.overrides || {}, actor: acc.id });
     const id = newTournamentId();
+    const info = {};
+    for (const k of TOURNAMENT_INFO_FIELDS) if (body.info?.[k] !== undefined) info[k] = body.info[k];
     db.tournaments[id] = {
       id, name: body.name || 'Untitled', venue: body.venue || '', status: 'draft',
       config, config_version: 1, is_demo: false, bulletin: [], created_at: new Date().toISOString(),
+      organizerIds: [acc.id], info,
     };
     audit(db, { tournamentId: id, actor: acc.id, action: 'tournament.created', payload: { name: body.name } });
     persist();
@@ -384,6 +443,8 @@ export function createApp(db = null) {
     const live = tableInput(db, body.tournamentId, body.bracketId, body.matchId, {
       red: undefined, green: undefined,
       ...(body.clockSec != null ? { clockSec: body.clockSec } : {}),
+      ...(body.injurySec != null ? { injurySec: body.injurySec } : {}),
+      ...(body.bloodSec != null ? { bloodSec: body.bloodSec } : {}),
       ...(body.period != null ? { period: body.period } : {}),
       ...(body.pauseReason ? { paused: true, pauseReason: body.pauseReason } : {}),
       ...(body.resume ? { paused: false, pauseReason: null } : {}),
@@ -517,9 +578,18 @@ export function createApp(db = null) {
       const i = seeds.indexOf(r);
       return i >= 0 ? names[i] : 'TBD';
     };
+    const feed = (ref) => (ref && (ref.t === 'w' || ref.t === 'l') && byId[ref.m])
+      ? { from: ref.m, via: ref.t } : null;
     return {
       format: struct.format,
-      matches: struct.matches.map((m) => ({ label: m.round_label, a: nm(m.slot_a), b: nm(m.slot_b) })),
+      matches: struct.matches.map((m) => ({
+        label: m.round_label, a: nm(m.slot_a), b: nm(m.slot_b),
+        id: m.id, round: m.round_label, side: m.bracket_side, status: m.status,
+        bout: m.bout_number, mat: m.mat,
+        aid: resolveW(m.slot_a, byId, seeds) || null, bid: resolveW(m.slot_b, byId, seeds) || null,
+        scoreA: null, scoreB: null, outcome: null, wid: null, live: false,
+        feedA: feed(m.slot_a), feedB: feed(m.slot_b),
+      })),
     };
   });
 
@@ -675,18 +745,58 @@ export function createApp(db = null) {
     const t = db.tournaments[tid];
     if (!t) throw new Error('tournament not found');
     const brackets = Object.values(db.brackets).filter((b) => b.tournament_id === tid);
+    const escH = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    // Same normalized shape as the spectator projection: the packet renders the
+    // SAME visual bracket (shared client renderer), with blank score lines for
+    // bouts not yet wrestled so they can be filled in by hand on paper.
+    const sheetData = brackets.map((b) => {
+      const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
+      const nm = (id) => (id ? db.wrestlers[id]?.name || 'TBD' : 'TBD');
+      const feed = (ref) => (ref && (ref.t === 'w' || ref.t === 'l') && byId[ref.m])
+        ? { from: ref.m, via: ref.t } : null;
+      return {
+        division: b.division, format: b.format,
+        matches: b.structure.matches.map((m) => {
+          const aid = resolveW(m.slot_a, byId, b.structure.seeds);
+          const bid = resolveW(m.slot_b, byId, b.structure.seeds);
+          return {
+            id: m.id, round: m.round_label, side: m.bracket_side, status: m.status,
+            bout: m.bout_number, mat: m.mat, a: nm(aid), b: nm(bid), aid, bid,
+            scoreA: m.result?.scoreA ?? null, scoreB: m.result?.scoreB ?? null,
+            outcome: m.result?.outcome || null, wid: m.result?.winnerId || null,
+            live: false, feedA: feed(m.slot_a), feedB: feed(m.slot_b),
+          };
+        }),
+      };
+    });
     const rows = brackets.flatMap((b) => b.structure.matches.map((m) => {
       const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
       const nm = (id) => (id ? db.wrestlers[id]?.name || 'TBD' : 'TBD');
-      return `<tr><td>${m.bout_number ?? ''}</td><td>${m.mat ?? ''}</td><td>${b.division}</td><td>${m.round_label}</td><td>${nm(resolveW(m.slot_a, byId, b.structure.seeds))}</td><td>${nm(resolveW(m.slot_b, byId, b.structure.seeds))}</td><td>${m.result ? `${m.result.outcome}` : ''}</td></tr>`;
+      return `<tr><td>${m.bout_number ?? ''}</td><td>${m.mat ?? ''}</td><td>${escH(b.division)}</td><td>${escH(m.round_label)}</td><td>${escH(nm(resolveW(m.slot_a, byId, b.structure.seeds)))}</td><td>${escH(nm(resolveW(m.slot_b, byId, b.structure.seeds)))}</td><td>${m.result ? escH(m.result.outcome) : ''}</td></tr>`;
     })).join('');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${t.name}</title>`
-      + `<style>body{font-family:sans-serif}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:4px;font-size:12px}</style></head><body>`
-      + `<h1>Emergency packet — ${t.name} (DEMO DATA)</h1><p>Venue: ${t.venue} · Rules: ${t.config.presetId} (${t.config.presetStatus}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}</p>`
-      + `<h2>Bulletin</h2><p>${(t.bulletin || []).join(' · ')}</p>`
-      + `<h2>Mat queues</h2><table><tr><th>Bout</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
+    const day = new Date().toLocaleDateString();
+    const payload = JSON.stringify({ tournament: t.name, day, sheets: sheetData }).replace(/</g, '\\u003c');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${escH(t.name)}</title>`
+      + `<link rel="stylesheet" href="/styles.css"></head><body class="packet" data-print-layout="full">`
+      + `<div class="packetbar noprint"><strong>Print layout</strong><div class="chipline" id="playout">`
+      + `<button class="chip" data-layout="compact">Multiple per page</button>`
+      + `<button class="chip on" data-layout="full">One per page, landscape</button></div>`
+      + `<button class="big" id="pprint">Print</button></div>`
+      + `<h1>Emergency packet — ${escH(t.name)} (DEMO DATA)</h1>`
+      + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}</p>`
+      + `<h2>Bulletin</h2><p>${escH((t.bulletin || []).join(' · '))}</p>`
+      + `<div id="sheets"></div>`
+      + `<h2>Mat run-order</h2><table class="runorder"><tr><th>Bout</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
       + `<p>If devices lose power, run on this paper and re-enter results through the exception workflow.</p>`
-      + `<script>window.print()<\/script></body></html>`;
+      + `<script>window.PACKET=${payload}<\/script><script src="/bracket.js"><\/script>`
+      + `<script>(function(){var root=document.getElementById('sheets');`
+      + `window.PACKET.sheets.forEach(function(s){var d=document.createElement('div');d.className='bracket-sheet';root.appendChild(d);`
+      + `window.Bracket.renderSheet(d,{title:window.PACKET.tournament+' — '+s.division,sub:window.PACKET.day,format:s.format,matches:s.matches});});`
+      + `document.querySelectorAll('#playout .chip').forEach(function(c){c.onclick=function(){`
+      + `document.body.dataset.printLayout=c.dataset.layout;`
+      + `document.querySelectorAll('#playout .chip').forEach(function(x){x.classList.toggle('on',x===c);});};});`
+      + `document.getElementById('pprint').onclick=function(){window.print();};`
+      + `window.Bracket.drawWires(document);window.Bracket.fitForPrint();window.print();})()<\/script></body></html>`;
     return { __html: html };
   });
 

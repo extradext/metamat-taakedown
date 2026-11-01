@@ -1,0 +1,22 @@
+# Render blueprint for Folkstyle Arena (permanent free host).
+# The app needs its Node server (API secrecy + sessions + JSON store), so it
+# deploys as a web service, not a static site.
+# Deploy: dashboard.render.com -> New -> Blueprint -> connect this repo.
+# Set MODEL_API_KEY in the dashboard (private, never in the repo).
+# Free tier sleeps when idle and wakes on visit; disk is ephemeral, so the
+# demo tournament reseeds on boot and anything created on the host is temporary.
+services:
+  - type: web
+    name: folkstyle-arena
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: USE_REAL_META_AI
+        value: "true"
+      - key: MODEL_API_KEY
+        sync: false
