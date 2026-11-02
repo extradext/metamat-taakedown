@@ -3,7 +3,7 @@
 // These never touch the bracket engine, rest gate, or results.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayMat, fmtPacketDay, sectionBulletin } from '../src/app.js';
+import { displayMat, fmtPacketDay, sectionBulletin, normalizeBulletin } from '../src/app.js';
 
 describe('display mats (simple numbers, no 1A/1B)', () => {
   it('maps split surfaces to separate numbered mats', () => {
@@ -39,15 +39,45 @@ describe('sectioned bulletin (app and packet agree)', () => {
       '[Raffle] 50/50 at finals.',
       '[Alert] Mat 6 starts late.',
     ]);
-    assert.deepEqual(secs.map(([s]) => s), ['Alerts', 'Parking', 'Snacks', 'Raffles', 'Info']);
-    assert.deepEqual(secs[0][1], ['Mat 6 starts late.']);
+    assert.deepEqual(secs.map(([s]) => s), ['Alerts', 'Parking', 'Snacks/Concessions', 'Raffles', 'General Info']);
+    assert.deepEqual(secs[0][1].map((e) => e.text), ['Mat 6 starts late.']);
   });
-  it('files untagged lines by keyword, unknown lines land in Info', () => {
+  it('files untagged lines by keyword, unknown lines land in General Info', () => {
     const secs = Object.fromEntries(sectionBulletin([
       'Hot dogs at the snack bar',
       'Something entirely different',
     ]));
-    assert.deepEqual(secs.Snacks, ['Hot dogs at the snack bar']);
-    assert.deepEqual(secs.Info, ['Something entirely different']);
+    assert.deepEqual(secs['Snacks/Concessions'].map((e) => e.text), ['Hot dogs at the snack bar']);
+    assert.deepEqual(secs['General Info'].map((e) => e.text), ['Something entirely different']);
+  });
+});
+
+describe('bulletin entries (one source: author, time, pin, expiry)', () => {
+  const NOW = '2026-11-07T12:00:00.000Z';
+  it('tolerates legacy plain-string entries', () => {
+    assert.deepEqual(normalizeBulletin(['[Info] Hi'], NOW), [
+      { text: '[Info] Hi', author: null, at: null, pinned: false },
+    ]);
+  });
+  it('drops expired entries, keeps unexpired ones', () => {
+    const out = normalizeBulletin([
+      { text: 'old', expires: '2026-11-07T11:00:00.000Z' },
+      { text: 'fresh', expires: '2026-11-07T13:00:00.000Z' },
+      { text: 'forever' },
+    ], NOW);
+    assert.deepEqual(out.map((e) => e.text), ['fresh', 'forever']);
+  });
+  it('sorts pinned entries first, stably', () => {
+    const out = normalizeBulletin([
+      { text: 'a' }, { text: 'b', pinned: true }, { text: 'c', pinned: true },
+    ], NOW);
+    assert.deepEqual(out.map((e) => e.text), ['b', 'c', 'a']);
+  });
+  it('keeps author and timestamp for display', () => {
+    const out = normalizeBulletin([
+      { text: 'x', author: 'Olive', at: '2026-11-07T08:00:00.000Z' },
+    ], NOW);
+    assert.equal(out[0].author, 'Olive');
+    assert.equal(out[0].at, '2026-11-07T08:00:00.000Z');
   });
 });

@@ -54,27 +54,47 @@ export function fmtPacketDay(iso) {
   return `${wd} ${mo} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
-// Same sectioning as the app bulletin: [Tag] lines -> labeled sections.
-export function sectionBulletin(lines) {
-  const order = ['Alerts', 'Parking', 'Snacks', 'Raffles', 'Info'];
-  const out = { Alerts: [], Parking: [], Snacks: [], Raffles: [], Info: [] };
-  for (const raw of lines || []) {
-    const m = String(raw).match(/^\[(Alerts?|Parking|Snacks?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
-    let sec = 'Info';
-    let text = String(raw);
+// Bulletin entries: legacy plain strings plus organizer-posted objects with
+// author, timestamp, pinned flag, and expiry. Expired entries never display;
+// pinned entries sort first (stably). One source for app, packet, and tabs.
+export function normalizeBulletin(entries, nowIso = new Date().toISOString()) {
+  const now = nowIso || new Date().toISOString();
+  const live = [];
+  for (const e of entries || []) {
+    if (typeof e === 'string') {
+      live.push({ text: e, author: null, at: null, pinned: false });
+    } else if (e && typeof e.text === 'string') {
+      if (e.expires && String(e.expires) <= now) continue;
+      live.push({ text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned });
+    }
+  }
+  const pinned = live.filter((e) => e.pinned);
+  const rest = live.filter((e) => !e.pinned);
+  return [...pinned, ...rest];
+}
+
+// Same sectioning as the app bulletin: entries -> labeled sections.
+export function sectionBulletin(entries, nowIso) {
+  const order = ['Alerts', 'Parking', 'Snacks/Concessions', 'Raffles', 'General Info'];
+  const out = { Alerts: [], Parking: [], 'Snacks/Concessions': [], Raffles: [], 'General Info': [] };
+  for (const e of normalizeBulletin(entries, nowIso)) {
+    const m = e.text.match(/^\[(Alerts?|Parking|Snacks?|Concessions?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
+    let sec = 'General Info';
+    let text = e.text;
     if (m) {
       text = m[2];
       const k = m[1].toLowerCase();
       sec = k.startsWith('alert') ? 'Alerts' : k.startsWith('park') ? 'Parking'
-        : k.startsWith('snack') ? 'Snacks' : k.startsWith('raffl') ? 'Raffles' : 'Info';
+        : (k.startsWith('snack') || k.startsWith('conces')) ? 'Snacks/Concessions'
+        : k.startsWith('raffl') ? 'Raffles' : 'General Info';
     } else {
       const low = text.toLowerCase();
       if (/alert|urgent|clos|emergency|delay/.test(low)) sec = 'Alerts';
       else if (/park/.test(low)) sec = 'Parking';
-      else if (/snack|concession|food/.test(low)) sec = 'Snacks';
+      else if (/snack|concession|food/.test(low)) sec = 'Snacks/Concessions';
       else if (/raffle/.test(low)) sec = 'Raffles';
     }
-    out[sec].push(text);
+    out[sec].push({ ...e, text });
   }
   return order.filter((s) => out[s].length).map((s) => [s, out[s]]);
 }
@@ -215,14 +235,6 @@ export function createApp(db = null) {
     const tid = match[1];
     const t = db.tournaments[tid];
     if (!t) throw new Error('tournament not found');
-    const regs = tournamentRegistrations(db, tid);
-    const team = regs.slice(0, 12).map((r) => {
-      const w = db.wrestlers[r.wrestler_id];
-      const nx = nextBoutFor(db, tid, r.wrestler_id);
-      const all = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches);
-      const st = restStatus({ lastBoutEndIso: lastBoutEnd(all, r.wrestler_id), nowIso: new Date().toISOString(), restFloorMin: t.config.values.restFloorMin });
-      return { id: w.id, name: w.name, team: w.team_history?.at(-1)?.team || 'Unattached', mat: nx?.mat ?? null, nextBout: nx?.bout_number ?? null, current: false, held: st.state === 'held' };
-    });
     const brackets = Object.values(db.brackets).filter((b) => b.tournament_id === tid).map((b) => ({
       id: b.id, division: b.division, format: b.format,
       matches: b.structure.matches.map((m) => {
@@ -255,7 +267,7 @@ export function createApp(db = null) {
         allTime: tallies.allTime[wid] || 0, card: disp ? db.cards[disp.card_id] || null : null,
       };
     });
-    return { tournament: t.name, date: (t.info && t.info.date) || null, team, brackets, bulletin: t.bulletin || [], kudos };
+    return { tournament: t.name, date: (t.info && t.info.date) || null, brackets, bulletin: normalizeBulletin(t.bulletin || []), kudos };
   });
 
   // ---------- tournaments + brackets (organizer) ----------
@@ -283,7 +295,7 @@ export function createApp(db = null) {
     if (!t) throw new Error('tournament not found');
     return {
       id: t.id, name: t.name, venue: t.venue || '', status: t.status,
-      info: t.info || {}, bulletin: t.bulletin || [],
+      info: t.info || {}, bulletin: normalizeBulletin(t.bulletin || []),
       rules: { presetId: t.config.presetId, presetStatus: t.config.presetStatus, restFloorMin: t.config.values.restFloorMin },
     };
   });
@@ -456,7 +468,12 @@ export function createApp(db = null) {
   on('POST', '^/api/brackets/([^/]+)/finalize$', setBracket('finalized'));
   on('POST', '^/api/tournaments/([^/]+)/bulletin$', async ({ req, match, body }) => {
     const acc = need(req, 'organizer');
-    db.tournaments[match[1]].bulletin.push(body.text);
+    const text = String(body.text || '').trim();
+    if (!text) throw new Error('announcement text is required');
+    db.tournaments[match[1]].bulletin.push({
+      text, author: acc.name || acc.id, at: new Date().toISOString(),
+      pinned: !!body.pinned, expires: body.expires || null,
+    });
     persist();
     return { ok: true };
   });
@@ -853,10 +870,18 @@ export function createApp(db = null) {
     const day = fmtPacketDay(isoDay);
     const regCut = t.info && t.info.regDetails ? ` · Registration: ${t.info.regDetails}` : '';
     const demoTag = t.is_demo ? ' (DEMO DATA)' : '';
-    // Same labeled sections as the app bulletin (Alerts, Parking, Snacks, Raffles, Info).
+    // Same labeled sections as the app bulletin, from the same source.
     const bullSecs = sectionBulletin(t.bulletin || []);
+    const bullMeta = (e) => {
+      const bits = [];
+      if (e.pinned) bits.push('Pinned');
+      if (e.author) bits.push(e.author);
+      if (e.at) bits.push(new Date(e.at).toLocaleString());
+      return bits.length ? ` <span class="bullmeta">· ${escH(bits.join(' · '))}</span>` : '';
+    };
     const bullHtml = bullSecs.map(([sec, items]) =>
-      `<h3>${escH(sec)}</h3>` + items.map((x) => `<p>${escH(x)}</p>`).join('')).join('') || '<p>No announcements.</p>';
+      `<h3>${escH(sec)}</h3>` + items.map((x) => `<p>${escH(x.text)}${bullMeta(x)}</p>`).join('')).join('') || '<p>No announcements.</p>';
+    const genLine = `Generated ${new Date().toLocaleString()} · ${t.demoVersion ? 'demo data v' + t.demoVersion : 'settings v' + (t.config_version ?? 1)}`;
     const payload = JSON.stringify({ tournament: t.name, day, sheets: sheetData }).replace(/</g, '\\u003c');
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${escH(t.name)}</title>`
       + `<link rel="stylesheet" href="/styles.css"></head><body class="packet" data-print-layout="full">`
@@ -866,7 +891,7 @@ export function createApp(db = null) {
       + `<button class="big" id="pprint">Print</button></div>`
       + `<h1>Emergency packet — ${escH(t.name)}${demoTag}</h1>`
       + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}${escH(regCut)}</p>`
-      + `<h2>Bulletin</h2>${bullHtml}`
+      + `<h2>Bulletin</h2><p>${escH(genLine)}</p>${bullHtml}`
       + `<div id="sheets"></div>`
       + `<h2>Mat run-order</h2><table class="runorder"><tr><th>Match</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
       + `<p>If devices lose power, run on this paper and re-enter results through the exception workflow.</p>`

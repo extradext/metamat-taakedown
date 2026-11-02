@@ -11,7 +11,18 @@ try {
 } catch { /* private mode */ }
 function saveSession() { try { localStorage.setItem('fa-session', S.session || ''); } catch { /* private mode */ } }
 function curTid() { return S.tournamentId || 'demo-tournament'; }
-function saveTid(id) { S.tournamentId = id; try { localStorage.setItem('fa-tid', id); } catch { /* private mode */ } }
+function saveTid(id) { S.tournamentId = id; try { localStorage.setItem('fa-tid', id); } catch { /* private mode */ } paintDemoTag(); }
+// The DEMO DATA tag follows the viewed tournament: visible for demo data,
+// hidden for real tournaments. Session-cached tournament list; offline keeps
+// the last known state rather than guessing.
+let demoTagCache = null;
+async function paintDemoTag() {
+  try {
+    if (!demoTagCache) demoTagCache = ((await api('/tournaments')).tournaments || []);
+    const t = demoTagCache.find((x) => x.id === curTid());
+    document.querySelector('.demo-tag').hidden = !(t ? t.demo : true);
+  } catch { /* offline: leave the tag as-is */ }
+}
 window.FA = S; // explicit bridge so Card Studio follows the selected wrestler
 function fmtDur(sec) {
   sec = Math.max(0, Math.round(sec || 0));
@@ -55,33 +66,56 @@ function schoolChip(team) {
   for (const c of team) h = (h * 31 + c.charCodeAt(0)) % 997;
   return '<span class="sch sch' + (h % 6) + '">' + esc(team) + '</span>';
 }
-const BULL_SECTIONS = ['Alerts', 'Parking', 'Snacks', 'Raffles', 'Info'];
-function parseBulletin(lines) {
-  const out = { Alerts: [], Parking: [], Snacks: [], Raffles: [], Info: [] };
-  for (const raw of lines || []) {
-    const m = String(raw).match(/^\[(Alerts?|Parking|Snacks?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
-    let sec = 'Info';
-    let text = String(raw);
+const BULL_SECTIONS = ['Alerts', 'Parking', 'Snacks/Concessions', 'Raffles', 'General Info'];
+// Mirrors the server normalize: legacy strings plus {text, author, at, pinned,
+// expires} objects. Expired entries never display; pinned sort first, stably.
+function normBull(entries) {
+  const now = new Date().toISOString();
+  const live = [];
+  for (const e of entries || []) {
+    if (typeof e === 'string') live.push({ text: e, author: null, at: null, pinned: false });
+    else if (e && typeof e.text === 'string') {
+      if (e.expires && String(e.expires) <= now) continue;
+      live.push({ text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned });
+    }
+  }
+  return [...live.filter((e) => e.pinned), ...live.filter((e) => !e.pinned)];
+}
+function parseBulletin(entries) {
+  const out = { Alerts: [], Parking: [], 'Snacks/Concessions': [], Raffles: [], 'General Info': [] };
+  for (const e of normBull(entries)) {
+    const m = e.text.match(/^\[(Alerts?|Parking|Snacks?|Concessions?|Raffles?|Info|General)\]\s*([\s\S]*)$/i);
+    let sec = 'General Info';
+    let text = e.text;
     if (m) {
       text = m[2];
       const k = m[1].toLowerCase();
-      sec = k.startsWith('alert') ? 'Alerts' : k.startsWith('park') ? 'Parking' : k.startsWith('snack') ? 'Snacks' : k.startsWith('raffl') ? 'Raffles' : 'Info';
+      sec = k.startsWith('alert') ? 'Alerts' : k.startsWith('park') ? 'Parking'
+        : (k.startsWith('snack') || k.startsWith('conces')) ? 'Snacks/Concessions'
+        : k.startsWith('raffl') ? 'Raffles' : 'General Info';
     } else {
       const low = text.toLowerCase();
       if (/alert|urgent|clos|emergency|delay/.test(low)) sec = 'Alerts';
       else if (/park/.test(low)) sec = 'Parking';
-      else if (/snack|concession|food/.test(low)) sec = 'Snacks';
+      else if (/snack|concession|food/.test(low)) sec = 'Snacks/Concessions';
       else if (/raffle/.test(low)) sec = 'Raffles';
     }
-    out[sec].push(text);
+    out[sec].push({ ...e, text });
   }
   return out;
 }
-function bulletinHTML(lines) {
-  const g = parseBulletin(lines);
+function bullMeta(e) {
+  const bits = [];
+  if (e.pinned) bits.push('Pinned');
+  if (e.author) bits.push(e.author);
+  if (e.at) { try { bits.push(new Date(e.at).toLocaleString()); } catch { /* bad date: skip */ } }
+  return bits.length ? ' <span class="bullmeta">· ' + esc(bits.join(' · ')) + '</span>' : '';
+}
+function bulletinHTML(entries) {
+  const g = parseBulletin(entries);
   const shown = BULL_SECTIONS.filter((s) => g[s].length);
   if (!shown.length) return '<p>No announcements.</p>';
-  return shown.map((s) => '<h3>' + s + '</h3>' + g[s].map((t) => '<p>' + esc(t) + '</p>').join('')).join('');
+  return shown.map((s) => '<h3>' + s + '</h3>' + g[s].map((t) => '<p>' + esc(t.text) + bullMeta(t) + '</p>').join('')).join('');
 }
 // Display mats are simple numbers: a split surface 1A/1B shows as Mat 1/Mat 2.
 // Rule: digit d + letter L -> (d-1)*2 + (A=1, B=2...). Plain digits pass through.
@@ -260,7 +294,7 @@ async function myWrestler() {
   const nx = snap.next || {};
   const sq2 = nx.current ? '<div class="square now"><span class="k">NEXT MATCH</span><span class="v">NOW · ' + esc(nx.bout_number ?? '') + '</span></div>'
     : nx.bout_number != null ? '<div class="square"><span class="k">NEXT MATCH</span><span class="v">' + esc(nx.bout_number) + '</span></div>'
-      : '<div class="square"><span class="k">NEXT MATCH</span><span class="v">—</span></div>';
+      : '<div class="square"><span class="k">NEXT MATCH</span><span class="v">Done</span></div>';
   let board = null;
   try { board = await api('/public/' + (S.tournamentId || 'demo-tournament') + '/spectate'); } catch { /* offline */ }
   const findMatch = (bracketId, matchId) => {
@@ -363,16 +397,9 @@ async function spectator() {
   let data;
   try { data = await api('/public/' + tid + '/spectate'); }
   catch { v.innerHTML = '<div class="panel"><p>Spectator view unavailable offline.</p></div>'; return; }
-  let team = '<div class="panel"><h2>Team</h2>';
-  for (const t of data.team || []) {
-    const sq2 = t.current ? '<div class="square now"><span class="k">NEXT BOUT</span><span class="v">NOW · BOUT</span></div>'
-      : t.nextBout != null ? '<div class="square"><span class="k">NEXT BOUT</span><span class="v">' + esc(t.nextBout) + '</span></div>'
-        : '<div class="square"><span class="k">NEXT BOUT</span><span class="v">—</span></div>';
-    team += '<div class="teammate">' + avatar(t.name) + '<div class="who">' + esc(t.name)
-      + '<div>' + schoolChip(t.team) + '</div>' + (t.held ? '<div class="held">' + icon('rest') + ' HELD — rest</div>' : '')
-      + '</div><div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(t.mat == null ? '—' : mapMat(t.mat)) + '</span></div>' + sq2 + '</div></div>';
-  }
-  team += '</div>';
+  // No Team block: it was an arbitrary first-12 registration slice, not a real
+  // feature. Next-bout detail lives in My Wrestlers, the bracket sheets, and
+  // the mat queues below — every datum it showed is still one glance away.
   const blist = data.brackets || [];
   S.expanded = S.expanded || [];
   let pins = [];
@@ -450,7 +477,7 @@ async function spectator() {
       + '<div>' + esc(k.name) + ' · ' + (galMode === 'per' ? k.count : k.allTime) + ' kudos (' + (galMode === 'per' ? 'tournament' : 'all-time') + ')</div>'
       + '<button class="kudosbtn" data-k="' + k.id + '">Give Kudos</button></div>').join('') + '</div>';
   let gal = '<div class="panel"><h2>Sportsmanship Stars</h2><div id="galbody">' + galHtml() + '</div></div>';
-  v.innerHTML = team + brackets + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(data.bulletin) + '</div>' + gal;
+  v.innerHTML = brackets + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(data.bulletin) + '</div>' + gal;
   v.querySelectorAll('[data-expand]').forEach((btn) => btn.onclick = () => {
     const id = btn.dataset.expand;
     const mount = v.querySelector('[data-mount="' + id + '"]');
@@ -509,9 +536,9 @@ async function spectator() {
 async function organizer() {
   const v = document.getElementById('view');
   if (!S.account) {
-    v.innerHTML = '<div class="panel"><h2>Sign in</h2><p>Organizer and table functions need a role-checked account.</p><div id="accts"></div></div>';
+    v.innerHTML = '<div class="panel"><h2>Sign in</h2><p>Organizer functions need a role-checked organizer account.</p><div id="accts"></div></div>';
     const a = await api('/demo/accounts');
-    document.getElementById('accts').innerHTML = a.accounts.map((x) =>
+    document.getElementById('accts').innerHTML = a.accounts.filter((x) => x.role === 'organizer').map((x) =>
       '<button class="big" data-a="' + x.id + '">' + esc(x.name) + ' · ' + esc(x.role) + '</button>').join('');
     document.querySelectorAll('#accts button').forEach((b) => b.onclick = async () => {
       const r = await api('/auth/login', { method: 'POST', body: { accountId: b.dataset.a } });
@@ -674,6 +701,8 @@ async function setupEditor(t, mountId, back) {
     + '<label>Reason (only needed if rest time changed)</label><input id="su-reason" type="text" placeholder="Why the change?">'
     + '<div id="su-msg"></div><div class="row"><button class="big primary" id="su-save">Save changes</button><button class="big" id="su-back">Done</button></div>'
     + '<label>Post an announcement</label><input id="su-bull" type="text" placeholder="Schedule change, raffle winner…">'
+    + '<div class="row"><label class="check"><input id="su-pin" type="checkbox"> Pin to top</label></div>'
+    + '<label>Clears after (hours, blank = stays up)</label><input id="su-exp" type="number" min="1" placeholder="">'
     + '<div class="row"><button class="big" id="su-post">Post</button></div></div>';
   wirePills('su-type', 'type', () => {});
   wirePills('su-rest', 'rest', () => {});
@@ -696,9 +725,12 @@ async function setupEditor(t, mountId, back) {
     const msg = document.getElementById('su-msg');
     const text = document.getElementById('su-bull').value.trim();
     if (!text) return;
+    const hrs = Number(document.getElementById('su-exp').value);
+    const body = { text, pinned: document.getElementById('su-pin').checked };
+    if (Number.isFinite(hrs) && hrs > 0) body.expires = new Date(Date.now() + hrs * 3600000).toISOString();
     try {
-      await api('/tournaments/' + t + '/bulletin', { method: 'POST', body: { text } });
-      msg.innerHTML = '<p class="clear">Posted.</p>';
+      await api('/tournaments/' + t + '/bulletin', { method: 'POST', body });
+      msg.innerHTML = '<p class="clear">Posted — it shows in Brackets, Tournament, and the packet.</p>';
     } catch (e) { msg.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
   };
 }
@@ -805,7 +837,7 @@ async function tournament() {
     + infoRow('Tables', d.tables) + infoRow('Referees', d.referees) + infoRow('Head referee', d.headRef)
     + infoRow('Check-in times', d.weighins) + infoRow('Contact', d.contact) + infoRow('Notes', d.notes) + '</div>'
     + (d.raffle ? '<div class="banner"><b>Raffle:</b> ' + esc(d.raffle) + '</div>' : '')
-    + '<div class="panel"><h2>' + icon('status') + ' Announcements</h2>' + bulletinHTML(info.bulletin) + '</div>';
+    + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(info.bulletin) + '</div>';
   if (stats) {
     html += '<div class="panel"><h2>' + icon('result') + ' Day stats</h2><div class="statgrid">'
       + statCell('Matches wrestled', stats.matchesWrestled + ' / ' + stats.matchesTotal)
@@ -1009,21 +1041,31 @@ async function about() {
 
 const ROLE_TABS = {
   parent: ['wrestler', 'spectator', 'tournament', 'notes'],
-  organizer: ['organizer', 'spectator', 'tournament', 'notes'],
-  table: ['table', 'spectator', 'tournament', 'notes'],
+  organizer: ['organizer', 'spectator', 'tournament'],
+  table: ['table', 'spectator', 'tournament'],
 };
 const ROLE_DEMO_ACCOUNT = { parent: 'acc-guardian', organizer: 'acc-organizer', table: 'acc-table1' };
 const GUEST_TABS = ['spectator', 'tournament', 'guest'];
 const GUEST_OK = ['spectator', 'tournament', 'guest', 'landing'];
+const TABLE_OK = ['table', 'spectator', 'tournament', 'landing'];
 function tabsFor() { return S.session === 'guest' ? GUEST_TABS : (ROLE_TABS[S.role] || ROLE_TABS.parent); }
+function menuKey() { return S.session === 'guest' ? 'guest' : (S.role || 'parent'); }
 function paintSession() {
   const chip = document.getElementById('sessionchip');
-  const label = S.session === 'guest' ? 'Guest' : S.session === 'demo' ? 'DEMO' : S.account ? S.account.name : '';
+  const label = S.session === 'guest' ? 'Guest' : S.session === 'demo' ? 'DEMO'
+    : S.role === 'organizer' ? 'Organizer' : S.role === 'table' ? 'Table Worker'
+    : S.account ? S.account.name : 'Parent';
   chip.hidden = !label;
   chip.textContent = label;
+  paintDemoTag();
+  const key = menuKey();
+  document.querySelectorAll('#menupanel button[data-min]').forEach((b) => {
+    b.hidden = !String(b.dataset.min).split(',').includes(key);
+  });
 }
 function setMode(mode) {
   if (S.session === 'guest' && !GUEST_OK.includes(mode)) { guestBlocked(mode); return; }
+  if (S.session !== 'guest' && S.role === 'table' && !TABLE_OK.includes(mode)) { tableBlocked(mode); return; }
   S.mode = mode;
   document.body.classList.toggle('landing', mode === 'landing');
   document.querySelectorAll('.modemenu button[data-mode], #menupanel button[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
@@ -1038,26 +1080,34 @@ function guestBlocked(mode) {
   const v = document.getElementById('view');
   v.innerHTML = '<div class="panel"><h2>Guests can\'t open that</h2><p>Guests get public views and the Bracket Generator. The rest needs the demo or sign-in.</p>'
     + '<div class="row"><button class="big primary" id="gbdemo">Continue as Demo</button><button class="big" id="gbback">Back</button></div></div>';
-  document.getElementById('gbdemo').onclick = (e) => startSession('demo', e.target);
+  document.getElementById('gbdemo').onclick = (e) => startSession({ session: 'demo', role: 'parent', accountId: 'acc-guardian' }, e.target);
   document.getElementById('gbback').onclick = () => setMode('spectator');
+}
+function tableBlocked(mode) {
+  S.mode = mode;
+  paintSession();
+  const v = document.getElementById('view');
+  v.innerHTML = '<div class="panel"><h2>Table workers can\'t open that</h2><p>This login covers assigned mats and matches only — no parent profiles, notes, or studio. Sign out to use another login.</p>'
+    + '<div class="row"><button class="big primary" id="tbback">Back to Table</button></div></div>';
+  document.getElementById('tbback').onclick = () => setMode('table');
 }
 function applyRole() {
   const tabs = tabsFor();
   document.querySelectorAll('.modemenu button[data-mode]').forEach((b) => { b.hidden = !tabs.includes(b.dataset.mode); });
-  document.querySelectorAll('.roleswitch [data-role]').forEach((b) => b.classList.toggle('on', b.dataset.role === S.role));
-  document.querySelector('.roleswitch').hidden = S.session === 'guest';
   if (!tabs.includes(S.mode) && !['studio', 'guest'].includes(S.mode)) setMode(tabs[0]);
   else setMode(S.mode === 'landing' ? tabs[0] : S.mode);
 }
-async function startSession(kind, btn) {
+// Separate logins per role, chosen on the landing page. There is no in-app
+// role switch: to change roles, sign out and pick another login.
+async function startSession(spec, btn) {
   if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
   document.getElementById('view').innerHTML = '<div class="loading" aria-live="polite"><div class="skel"></div><p>Loading…</p></div>';
-  S.session = kind; saveSession();
-  S.role = 'parent';
-  try { localStorage.setItem('fa-role', 'parent'); } catch { /* private mode */ }
-  if (kind === 'demo') {
+  S.session = spec.session; saveSession();
+  S.role = spec.role || 'parent';
+  try { localStorage.setItem('fa-role', S.role); } catch { /* private mode */ }
+  if (spec.accountId) {
     try {
-      const r = await api('/auth/login', { method: 'POST', body: { accountId: 'acc-guardian' } });
+      const r = await api('/auth/login', { method: 'POST', body: { accountId: spec.accountId } });
       S.token = r.token; S.account = r.account;
     } catch { S.token = null; S.account = null; }
   } else {
@@ -1067,9 +1117,9 @@ async function startSession(kind, btn) {
 }
 async function bootSession() {
   if (!S.session) { setMode('landing'); return; }
-  if (S.session === 'demo' && !S.token) {
+  if (S.session !== 'guest' && !S.token) {
     try {
-      const r = await api('/auth/login', { method: 'POST', body: { accountId: 'acc-guardian' } });
+      const r = await api('/auth/login', { method: 'POST', body: { accountId: ROLE_DEMO_ACCOUNT[S.role] || 'acc-guardian' } });
       S.token = r.token; S.account = r.account;
     } catch { /* offline: views degrade gracefully */ }
   }
@@ -1077,44 +1127,26 @@ async function bootSession() {
 }
 function landing() {
   const v = document.getElementById('view');
+  const demoNote = 'Demo session role for demo purposes only — this repo has no real authentication backend.';
   v.innerHTML = '<div class="panel landhero"><h2>Folkstyle Arena</h2><p>Tournament day: wrestlers, brackets, mats, and cards.</p></div>'
     + '<div class="panel"><button class="big primary landbtn" id="landemo">Continue as Demo</button>'
     + '<p class="hint">The full demo tournament. Clearly labeled DEMO DATA on every page.</p></div>'
+    + '<div class="panel"><button class="big landbtn" id="lanparent">Parent sign-in</button>'
+    + '<p class="hint">Your wrestlers, brackets, bulletin, notes, and cards. ' + demoNote + '</p></div>'
+    + '<div class="panel"><button class="big landbtn" id="lanorg">Organizer sign-in</button>'
+    + '<p class="hint">Tournament setup, settings, bulletins, and results controls. ' + demoNote + '</p></div>'
+    + '<div class="panel"><button class="big landbtn" id="lantable">Table Worker sign-in</button>'
+    + '<p class="hint">Assigned mats and matches only: scoring, undo, clocks. ' + demoNote + '</p></div>'
     + '<div class="panel"><button class="big landbtn" id="languest">Continue as Guest</button>'
-    + '<p class="hint">Public views and the Bracket Generator only. No saved profile or private notes. Labeled Guest.</p></div>'
-    + '<div class="panel"><button class="big landbtn" id="lansign">Sign in</button>'
-    + '<p class="hint">Demo session roles for demo purposes only — this repo has no real authentication backend.</p></div>';
-  document.getElementById('landemo').onclick = (e) => startSession('demo', e.target);
-  document.getElementById('languest').onclick = (e) => startSession('guest', e.target);
-  document.getElementById('lansign').onclick = () => signinView();
-}
-function signinView() {
-  const v = document.getElementById('view');
-  v.innerHTML = '<div class="panel"><h2>Sign in</h2>'
-    + '<p class="held">Demo only: no real authentication backend exists in this repo. These are session roles for demo purposes — not secure accounts.</p>'
-    + '<div class="row"><button class="big primary" data-srole="parent">Parent</button>'
-    + '<button class="big" data-srole="organizer">Organizer</button>'
-    + '<button class="big" data-srole="table">Table Worker</button></div>'
-    + '<div class="row"><button class="big" id="backland">Back</button></div></div>';
-  v.querySelectorAll('[data-srole]').forEach((b) => b.onclick = async () => {
-    b.disabled = true;
-    S.session = 'authed'; saveSession();
-    await setRole(b.dataset.srole);
-  });
-  document.getElementById('backland').onclick = () => setMode('landing');
-}
-async function setRole(role) {
-  S.role = role;
-  try { localStorage.setItem('fa-role', role); } catch { /* private mode */ }
-  try {
-    const r = await api('/auth/login', { method: 'POST', body: { accountId: ROLE_DEMO_ACCOUNT[role] } });
-    S.token = r.token; S.account = r.account;
-  } catch { /* offline: keep current session */ }
-  applyRole();
+    + '<p class="hint">Public views and the Bracket Generator only. No saved profile or private notes. Labeled Guest.</p></div>';
+  document.getElementById('landemo').onclick = (e) => startSession({ session: 'demo', role: 'parent', accountId: 'acc-guardian' }, e.target);
+  document.getElementById('lanparent').onclick = (e) => startSession({ session: 'authed', role: 'parent', accountId: 'acc-guardian' }, e.target);
+  document.getElementById('lanorg').onclick = (e) => startSession({ session: 'authed', role: 'organizer', accountId: 'acc-organizer' }, e.target);
+  document.getElementById('lantable').onclick = (e) => startSession({ session: 'authed', role: 'table', accountId: 'acc-table1' }, e.target);
+  document.getElementById('languest').onclick = (e) => startSession({ session: 'guest' }, e.target);
 }
 
 document.querySelectorAll('.modemenu button[data-mode], #menupanel button[data-mode]').forEach((b) => b.onclick = () => setMode(b.dataset.mode));
-document.querySelectorAll('.roleswitch [data-role]').forEach((b) => b.onclick = () => setRole(b.dataset.role));
 document.getElementById('menubtn').onclick = () => {
   const p = document.getElementById('menupanel');
   p.hidden = !p.hidden;
@@ -1136,9 +1168,19 @@ document.getElementById('search').addEventListener('change', async (e) => {
   box.innerHTML = '<div class="panel"><p>Searching…</p></div>';
   try {
     const r = await api('/search?q=' + encodeURIComponent(q) + (S.tournamentId ? '&tournamentId=' + S.tournamentId : ''));
-    const res = r.results || [];
-    if (!res.length) { box.innerHTML = '<div class="panel"><p>No matches for “' + esc(q) + '”.</p></div>'; return; }
-    box.innerHTML = '<div class="panel"><h3>Results</h3>' + res.map((x, i) =>
+    let res = r.results || [];
+    // Table logins never open parent profiles; organizer logins never open
+    // parent profiles or private notes either (their view is setup/results).
+    // The server additionally withholds private notes from table and guests.
+    let withheld = '';
+    const hideKinds = S.session !== 'guest' && S.role === 'table' ? ['wrestler']
+      : S.session !== 'guest' && S.role === 'organizer' ? ['wrestler', 'note'] : [];
+    if (hideKinds.length && res.some((x) => hideKinds.includes(x.kind))) {
+      res = res.filter((x) => !hideKinds.includes(x.kind));
+      withheld = '<p class="hint">Wrestler profiles and private notes stay in the parent login — hidden here.</p>';
+    }
+    if (!res.length) { box.innerHTML = '<div class="panel"><p>No matches for “' + esc(q) + '”.</p>' + withheld + '</div>'; return; }
+    box.innerHTML = '<div class="panel"><h3>Results</h3>' + withheld + res.map((x, i) =>
       '<button class="srrow" data-sr="' + i + '"><span class="srkind">' + esc(x.kind) + '</span><span>' + esc(x.label) + '</span></button>').join('') + '</div>';
     box.querySelectorAll('[data-sr]').forEach((b) => b.onclick = () => {
       const x = res[Number(b.dataset.sr)];

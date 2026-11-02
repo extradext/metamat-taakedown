@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-11-01 — **78 tests, 23 suites, 78 pass, 0 fail** (72 prior + 6 new: display-mat mapping, packet-day formatting, sectioned-bulletin grouping).
+Last full run: 2026-11-02 — **82 tests, 24 suites, 82 pass, 0 fail** (78 prior + 4 new: bulletin entry normalization — legacy strings, expiry filter, pinned-first order, author/timestamp).
 
 ## Coverage by spec area
 
@@ -40,8 +40,9 @@ Last full run: 2026-11-01 — **78 tests, 23 suites, 78 pass, 0 fail** (72 prior
   Madison properties + determinism; confirmed-conflict + alternatives.
 - **Static serving:** mode menu, MIME types, fallback, traversal block.
 - **Display projections:** split-surface → simple mat numbers (1A/1B→1/2…);
-  ISO settings date → readable day without UTC shift; bulletin [Tag] lines →
-  Alerts/Parking/Snacks/Raffles/Info sections with keyword fallback.
+  ISO settings date → readable day without UTC shift; bulletin entries →
+  Alerts/Parking/Snacks-Concessions/Raffles/General-Info sections with keyword
+  fallback, legacy-string tolerance, expiry filter, pinned-first order.
 - **End-to-end smoke** (`server/tests/e2e.local.js`, loopback-only, run
   manually — not part of `npm test`): boot, login ×4 roles, snapshot,
   clock-in, live score, finalize, rest HOLD at finalize, kudos cap + guest

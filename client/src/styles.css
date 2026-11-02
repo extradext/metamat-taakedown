@@ -42,11 +42,6 @@ h3 { font-size: 18px; margin: 0 0 8px; }
 }
 #menupanel button.on { border-color: var(--gold); background: #2c3524; }
 #menupanel .navsearch { border-style: dashed; border-color: var(--gold); color: var(--gold); margin-top: 4px; }
-.roleswitch { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.rolelabel { color: var(--muted); font-weight: 700; font-size: 15px; }
-.roleswitch [data-role] { flex: 1 1 0; min-width: 0; min-height: 48px; font-size: 15px; font-weight: 700;
-  border-radius: 10px; border: 2px solid var(--line); background: #232b33; color: var(--ink); cursor: pointer; }
-.roleswitch [data-role].on { border-color: var(--gold); background: #2c3524; }
 /* ---- Bottom nav (phone): exactly 4 tabs, no scrolling. Desktop: side panel. ---- */
 .modemenu {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
@@ -112,10 +107,10 @@ details.menu .panel:last-child { margin-bottom: 0; }
 .square .v { font-size: 30px; font-weight: 800; }
 .square.now { border-color: var(--red); background: #3a1113; }
 .square.now .v { color: #ffb3b5; font-size: 20px; }
-.teammate { display: flex; gap: 10px; align-items: center; background: var(--panel);
-  border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
-.teammate .who { font-size: 20px; font-weight: 700; }
 .held { color: #ffb3b5; font-weight: 700; }
+.bullmeta { color: var(--muted); font-size: 13px; font-weight: 400; }
+label.check { display: flex; align-items: center; gap: 10px; min-height: 56px; cursor: pointer; }
+label.check input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--gold); }
 .clear { color: #9df0ae; font-weight: 700; }
 .kudosbtn { width: 100%; min-height: 52px; font-size: 17px; font-weight: 700; border-radius: 10px;
   border: 2px solid var(--gold); background: transparent; color: var(--gold); cursor: pointer; }
@@ -362,6 +357,7 @@ body.packet table.runorder { border-collapse: collapse; width: 100%; }
 body.packet table.runorder td, body.packet table.runorder th { border: 1px solid #000; padding: 4px; font-size: 12px; }
 body.packet .pill, body.packet .p-done, body.packet .p-live, body.packet .p-mid { background: #fff; color: #000; border: 1px solid #000; }
 body.packet .p-todo { border: 1px dashed #000; color: #000; }
+body.packet .bullmeta { color: #333; font-size: 12px; }
 
 /* ---- Tournament hub: info rows + stat grid ---- */
 .inforow { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0;
@@ -437,7 +433,7 @@ button.big .avatar { width: 30px; height: 30px; font-size: 12px; border-width: 1
 /* ---- Sessions, landing, bracket list, pins, search, modal, loading ---- */
 .sessionchip { font-size: 12px; font-weight: 800; background: #232b33; color: var(--gold);
   border: 2px solid var(--gold); border-radius: 999px; padding: 1px 9px; margin-left: 6px; vertical-align: middle; }
-body.landing .modemenu, body.landing .roleswitch, body.landing .menuwrap, body.landing .searchrow { display: none; }
+body.landing .modemenu, body.landing .menuwrap, body.landing .searchrow { display: none; }
 .landhero { text-align: center; }
 .landbtn { width: 100%; }
 .pinhead { color: var(--gold); }

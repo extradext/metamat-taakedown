@@ -14,19 +14,13 @@
     <div class="menuwrap">
       <button id="menubtn" aria-haspopup="true" aria-expanded="false">Menu</button>
       <div id="menupanel" hidden>
-        <button data-mode="studio">Card Studio</button>
-        <button data-mode="guest">Bracket Generator</button>
+        <button data-mode="studio" data-min="parent">Card Studio</button>
+        <button data-mode="guest" data-min="parent,organizer,guest">Bracket Generator</button>
         <label class="menuitem navsearch" for="search">Search</label>
         <button id="aboutbtn2">Architecture / About</button>
-        <button id="switchsession">Switch session</button>
+        <button id="switchsession">Sign out</button>
       </div>
     </div>
-  </div>
-  <div class="roleswitch" role="group" aria-label="Role">
-    <span class="rolelabel">Role:</span>
-    <button data-role="parent" class="on">Parent</button>
-    <button data-role="organizer">Organizer</button>
-    <button data-role="table">Table Worker</button>
   </div>
 </header>
 <nav class="modemenu" aria-label="Mode">
