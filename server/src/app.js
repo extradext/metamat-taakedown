@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { loadDb, saveDb, audit, tournamentMatches, resolveWrestler, tournamentRegistrations } from './stores.js';
+import { loadDb, saveDb, audit, resolveWrestler, tournamentRegistrations } from './stores.js';
 import { newTournamentId, createTournamentConfig, freezeConfig, correctConfig, getPreset } from './rules.js';
 import { newId } from './ids.js';
 import {
@@ -16,8 +16,10 @@ import {
 } from './engine.js';
 import {
   register, checkin, scoreMatch, tableInput, undoPlay, giveKudos, kudosTallies,
-  createCardEvent, setOnDisplay, mintMilestone, clockIn, clockOut, setHouseholdPin, checkHouseholdPin,
-  createInvite, acceptInvite, approveGuardian, kidConflicts, nextBoutFor,
+  createCardEvent, demoRegenerateCard, setOnDisplay, mintMilestone, savePhotoCard,
+  seasonCreationState, milestoneEarnings, albumSections, cardContext,
+  clockIn, clockOut, tableLog, setHouseholdPin, checkHouseholdPin,
+  createInvite, acceptInvite, revokeInvite, approveGuardian, kidConflicts, nextBoutFor, isLiveBout,
   tournamentStats, ownsTournament, setTournamentInfo, TOURNAMENT_INFO_FIELDS,
 } from './tournament.js';
 import { assess, evaluateGrouping, alternativeGrouping, madisonGroups } from './matching.js';
@@ -65,12 +67,73 @@ export function normalizeBulletin(entries, nowIso = new Date().toISOString()) {
       live.push({ text: e, author: null, at: null, pinned: false });
     } else if (e && typeof e.text === 'string') {
       if (e.expires && String(e.expires) <= now) continue;
-      live.push({ text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned });
+      live.push({
+        text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned,
+        ...(e.expires ? { expires: e.expires } : {}),
+      });
     }
   }
   const pinned = live.filter((e) => e.pinned);
   const rest = live.filter((e) => !e.pinned);
   return [...pinned, ...rest];
+}
+
+// "Clears after Nh" wording, derived from the posting + expiry the organizer
+// set — the same line the app, packet, and tabs all show. Blank when the
+// entry stays up indefinitely.
+export function clearsAfterLabel(e) {
+  if (!e || !e.expires) return '';
+  if (e.at) {
+    const hrs = Math.round((new Date(e.expires).getTime() - new Date(e.at).getTime()) / 3600000);
+    if (Number.isFinite(hrs) && hrs > 0) return `Clears after ${hrs}h`;
+  }
+  try {
+    return `Clears ${new Date(e.expires).toLocaleString()}`;
+  } catch { return 'Clears soon'; }
+}
+
+// Bout-number queries: "7", "Match 7", "match7", "bout 7", "#7" all mean
+// bout 7. Anything else is not a bout query.
+export function parseBoutQuery(q) {
+  const m = String(q || '').trim().match(/^(?:match|bout|m|b)?\s*#?\s*(\d{1,6})$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Short link to ONE bracket's public view (the Brackets tab sheet). The hash
+// only ever expands a public bracket — it can never carry a guardian invite.
+export function bracketShortLink(bracketId) {
+  return `#b=${encodeURIComponent(bracketId)}`;
+}
+
+// Deterministic pseudo-QR: a stable 21x21 SVG grid hashed from the payload.
+// Honest labeling ("scan code") — scannable by the app's own link reader,
+// not a claim of ISO QR encoding.
+export function qrSvg(payload, size = 84) {
+  const s = String(payload);
+  const n = 21;
+  const inFinder = (x, y) => (x < 8 && y < 8) || (x >= n - 8 && y < 8) || (x < 8 && y >= n - 8);
+  const finderOn = (x, y) => {
+    const lx = x < 8 ? x : x >= n - 8 ? x - (n - 7) : -1;
+    const ly = y < 8 ? y : y >= n - 8 ? y - (n - 7) : -1;
+    if (lx < 0 || ly < 0 || lx > 6 || ly > 6) return false;
+    if (lx === 0 || lx === 6 || ly === 0 || ly === 6) return true;
+    return lx >= 2 && lx <= 4 && ly >= 2 && ly <= 4;
+  };
+  const bit = (x, y) => {
+    let h = 2166136261;
+    const mix = (v) => { h ^= v & 0xffffffff; h = Math.imul(h, 16777619); };
+    for (let i = 0; i < s.length; i++) mix(s.charCodeAt(i));
+    mix(x * 31 + 7); mix(y * 57 + 13);
+    return (h >>> 0) % 2 === 0;
+  };
+  let cells = `<rect x="0" y="0" width="${n}" height="${n}" fill="#fff"/>`;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const dark = inFinder(x, y) ? finderOn(x, y) : bit(x, y);
+    if (dark) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="#111"/>`;
+  }
+  return `<svg class="qr" viewBox="0 0 ${n} ${n}" width="${size}" height="${size}" role="img" aria-label="Scan code">${cells}</svg>`;
 }
 
 // Same sectioning as the app bulletin: entries -> labeled sections.
@@ -97,6 +160,11 @@ export function sectionBulletin(entries, nowIso) {
     out[sec].push({ ...e, text });
   }
   return order.filter((s) => out[s].length).map((s) => [s, out[s]]);
+}
+/** Invalidate one bearer token (sign-out hygiene). Unknown tokens are already out. */
+export function logoutToken(db, token) {
+  if (token && db.sessions) delete db.sessions[token];
+  return { ok: true };
 }
 export function resolveStatic(urlPath) {
   const rel = urlPath === '/' ? 'index.html' : urlPath.slice(1).split('?')[0];
@@ -163,6 +231,12 @@ export function createApp(db = null) {
     persist();
     return { token, account: acc };
   });
+  on('POST', '^/api/auth/logout$', async ({ req }) => {
+    const m = (req.headers.authorization || '').match(/^Bearer (.+)$/);
+    if (m) logoutToken(db, m[1]);
+    persist();
+    return { ok: true };
+  });
   on('GET', '^/api/demo/accounts$', async () => ({ accounts: Object.values(db.accounts) }));
   on('GET', '^/api/demo/wrestlers$', async () => ({
     wrestlers: Object.values(db.wrestlers).filter((w) => w.is_demo).map((w) => ({ id: w.id, name: w.name, short_id: w.short_id })),
@@ -196,15 +270,9 @@ export function createApp(db = null) {
     const tid = query.get('tournamentId') || 'demo-tournament';
     const t = db.tournaments[tid];
     const next = nextBoutFor(db, tid, w.id);
-    let current = false;
-    if (next?.bout_number != null) {
-      const nums = tournamentMatches(db, tid).map((m) => m.bout_number).filter((n) => n != null);
-      void nums;
-      const all = Object.values(db.brackets).filter((b) => b.tournament_id === tid)
-        .flatMap((b) => b.structure.matches).filter((m) => m.status !== 'completed' && m.bout_number != null)
-        .sort((x, y) => x.bout_number - y.bout_number);
-      current = all.length > 0 && all[0].id === next.match_id;
-    }
+    // NOW means the wrestler's own next bout is live — never "first bout in
+    // the building", which mislabels once several mats wrestle at once.
+    const current = next ? isLiveBout(db, next.bracket_id, next.match_id) : false;
     let rest = { state: 'clear', message: 'Clear to wrestle.', floorMin: null, lastEnd: null };
     if (t) {
       const all = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches);
@@ -226,7 +294,7 @@ export function createApp(db = null) {
       coachFeedback: notes.filter((n) => n.author_role === 'coach').map((n) => n.body),
       today: today.length
         ? today.map((m) => `${m.round_label}: ${m.result.winnerId === w.id ? 'Won' : 'Lost'} (${m.result.outcome}${m.result.scoreA != null ? ` ${m.result.scoreA}-${m.result.scoreB}` : ''})`).join(' · ')
-        : 'No bouts yet today.',
+        : 'No matches yet today.',
     };
   });
 
@@ -247,7 +315,7 @@ export function createApp(db = null) {
         const feed = (ref) => (ref && (ref.t === 'w' || ref.t === 'l') && byId[ref.m])
           ? { from: ref.m, via: ref.t } : null;
         return {
-          label: `${m.round_label}${m.mat ? ` · Mat ${m.mat}` : ''}${m.bout_number ? ` · Bout ${m.bout_number}` : ''}`,
+          label: `${m.round_label}${m.mat ? ` · Mat ${m.mat}` : ''}${m.bout_number ? ` · Match ${m.bout_number}` : ''}`,
           a: nm(aid), b: nm(bid),
           result: m.result ? `${db.wrestlers[m.result.winnerId]?.name} (${m.result.outcome})` : null,
           id: m.id, round: m.round_label, side: m.bracket_side, status: m.status,
@@ -492,6 +560,16 @@ export function createApp(db = null) {
     persist();
     return rec;
   });
+  on('POST', '^/api/table/clockout$', async ({ req, body }) => {
+    const acc = need(req, 'organizer', 'table');
+    const out = clockOut(db, body.tournamentId, body.table || '1', body.name, acc.id);
+    persist();
+    return out;
+  });
+  on('GET', '^/api/table/([^/]+)/log$', async ({ req, match }) => {
+    need(req, 'organizer', 'table');
+    return { log: tableLog(db, match[1]) };
+  });
   on('GET', '^/api/table/([^/]+)/queue$', async ({ req, match, query }) => {
     need(req, 'organizer', 'table');
     const tid = match[1]; const table = query.get('table') || '1';
@@ -599,13 +677,20 @@ export function createApp(db = null) {
     const acc = need(req, 'guardian', 'organizer');
     const inv = createInvite(db, body.wrestlerId, { by: acc.id });
     persist();
-    return { token: inv.token, expires_at: inv.expires_at }; // QR encodes this token
+    // QR encodes the token; the manual code reads the same grant. No credentials.
+    return { token: inv.token, code: inv.code, expires_at: inv.expires_at };
   });
   on('POST', '^/api/sharing/accept$', async ({ req, body }) => {
     const acc = need(req, 'guardian');
-    const link = acceptInvite(db, body.token, acc.id);
+    const link = acceptInvite(db, body.token || body.code, acc.id);
     persist();
     return link;
+  });
+  on('POST', '^/api/sharing/revoke$', async ({ req, body }) => {
+    const acc = need(req, 'guardian', 'organizer');
+    const out = revokeInvite(db, body.token || body.code, acc.id);
+    persist();
+    return out;
   });
   on('POST', '^/api/sharing/approve$', async ({ req, body }) => {
     const acc = need(req, 'guardian', 'organizer');
@@ -708,20 +793,25 @@ export function createApp(db = null) {
         results.push({ kind: 'wrestler', id: w.id, label: `${w.name} · ${w.short_id}` });
       }
     }
-    const teams = new Set();
+    const boutN = parseBoutQuery(query.get('q') || '');
     for (const b of Object.values(db.brackets)) {
       if (b.tournament_id !== tid) continue;
       if (b.division.toLowerCase().includes(q)) results.push({ kind: 'bracket', id: b.id, label: b.division });
       for (const m of b.structure.matches) {
-        if (String(m.bout_number) === q) results.push({ kind: 'bout', id: m.id, bracketId: b.id, label: `Match ${m.bout_number} · Mat ${displayMat(m.mat)}` });
+        if (boutN != null && m.bout_number === boutN) results.push({ kind: 'bout', id: m.id, bracketId: b.id, label: `Match ${m.bout_number} · Mat ${displayMat(m.mat)}` });
       }
     }
+    const clubMembers = {};
     for (const r of Object.values(db.registrations)) {
       if (r.tournament_id !== tid) continue;
-      const team = db.wrestlers[r.wrestler_id]?.team_history?.at(-1)?.team;
-      if (team && team !== 'Unattached' && !teams.has(team)) {
-        teams.add(team);
-        if (team.toLowerCase().includes(q)) results.push({ kind: 'club', id: team, label: team });
+      const w = db.wrestlers[r.wrestler_id];
+      const team = w?.team_history?.at(-1)?.team;
+      if (!team || team === 'Unattached') continue;
+      (clubMembers[team] = clubMembers[team] || []).push({ id: w.id, name: w.name });
+    }
+    for (const [team, members] of Object.entries(clubMembers)) {
+      if (team.toLowerCase().includes(q)) {
+        results.push({ kind: 'club', id: team, label: `${team} · ${members.length} wrestlers`, members });
       }
     }
     if (acc && ['guardian', 'coach', 'organizer'].includes(acc.role)) {
@@ -750,8 +840,24 @@ export function createApp(db = null) {
   on('GET', '^/api/studio/album$', async ({ query }) => {
     let wid = query.get('wrestlerId');
     if (wid === 'demo') wid = Object.values(db.wrestlers).find((w) => w.is_demo)?.id;
-    const cards = Object.values(db.cards).filter((c) => c.wrestler_id === wid);
-    return { cards, onDisplay: db.onDisplay[wid]?.card_id || null };
+    const w = wid && db.wrestlers[wid];
+    const cards = w ? Object.values(db.cards).filter((c) => c.wrestler_id === wid) : [];
+    const onDisplay = (w && db.onDisplay[wid]?.card_id) || null;
+    const seasonId = query.get('seasonId') || 'S1';
+    return {
+      cards, onDisplay,
+      sections: albumSections(cards, onDisplay),
+      wrestler: w ? cardContext(db, wid, query.get('tournamentId') || 'demo-tournament') : null,
+      milestones: w ? milestoneEarnings(db, wid) : [],
+      lock: w ? seasonCreationState(db, wid, seasonId) : null,
+    };
+  });
+  // Milestones, each listed with the finalized bout(s) that earned it.
+  on('GET', '^/api/studio/milestones$', async ({ query }) => {
+    let wid = query.get('wrestlerId');
+    if (wid === 'demo') wid = Object.values(db.wrestlers).find((w) => w.is_demo)?.id;
+    if (!wid || !db.wrestlers[wid]) return { milestones: [] };
+    return { milestones: milestoneEarnings(db, wid) };
   });
   on('POST', '^/api/studio/create$', async ({ req, body }) => {
     const acc = authed(req);
@@ -766,6 +872,28 @@ export function createApp(db = null) {
     persist();
     return { variants };
   });
+  // Demo-only regeneration: requires the explicit demo flag AND a demo
+  // wrestler, so it can never run for a real account's season-locked card.
+  // The op itself mints a 'demo-regen' edition (never counted as a season
+  // creation) via the live Meta path, and logs as card.demo-regenerated.
+  on('POST', '^/api/studio/demo-regenerate$', async ({ req, body }) => {
+    if (!body || body.demo !== true) {
+      const e = new Error('Demo regeneration is demo-only — open the Demo session to use it.');
+      e.status = 403; e.code = 'DEMO_ONLY'; throw e;
+    }
+    const wid = body.wrestlerId || Object.values(db.wrestlers).find((w) => w.is_demo)?.id;
+    const w = wid && db.wrestlers[wid];
+    if (!w || !w.is_demo) {
+      const e = new Error('Demo regeneration is demo-only — it runs only for demo wrestlers and never touches a real account\'s season-locked card.');
+      e.status = 403; e.code = 'DEMO_ONLY'; throw e;
+    }
+    const acc = authed(req);
+    const card = await demoRegenerateCard(db, wid, body.seasonId || 'S1', {
+      answers: body.answers || {}, heroMix: body.heroMix || 'mixed', actor: acc?.id || 'demo',
+    });
+    persist();
+    return { card, demoOnly: true };
+  });
   on('POST', '^/api/studio/display$', async ({ body }) => {
     const card = db.cards[body.cardId];
     if (!card) throw new Error('card not found');
@@ -773,9 +901,27 @@ export function createApp(db = null) {
     persist();
     return { ok: true };
   });
-  on('POST', '^/api/studio/photo$', async ({ body }) => {
+  // Uploaded photos are persisted as PHOTO-edition album cards. A cut-out is
+  // reported only when the SAM call actually succeeded — otherwise the photo
+  // is framed unaltered, never AI-regenerated to fake one.
+  on('POST', '^/api/studio/photo$', async ({ req, body }) => {
+    const acc = authed(req);
+    let wid = body.wrestlerId;
+    if (!wid || wid === 'demo') {
+      const linked = Object.values(db.guardianLinks).find((l) => acc && l.account_id === acc.id && l.status === 'approved');
+      wid = linked?.wrestler_id || Object.values(db.wrestlers).find((w) => w.is_demo)?.id;
+    }
     const out = await samCutout(body.photo || '');
-    return out; // honest: framed unaltered until SAM wiring exists
+    const card = savePhotoCard(db, wid, body.seasonId || 'S1', String(body.photo || '').slice(0, 200000), {
+      samApplied: out.ok === true, actor: acc?.id || 'demo',
+    });
+    persist();
+    return {
+      card, photo: card.art, sam: { applied: out.ok === true },
+      message: out.ok === true
+        ? 'Background cut-out applied (SAM 3.1).'
+        : (out.message || 'Photo framed unaltered.'),
+    };
   });
   on('POST', '^/api/studio/milestone$', async ({ req, body }) => {
     const acc = need(req, 'guardian', 'organizer');
@@ -846,6 +992,8 @@ export function createApp(db = null) {
         ? { from: ref.m, via: ref.t } : null;
       return {
         division: b.division, format: b.format,
+        // Per-bracket scan code + short link: this bracket's public view only.
+        link: bracketShortLink(b.id), qr: qrSvg(`arena:bracket:${b.id}`, 72),
         matches: b.structure.matches.map((m) => {
           const aid = resolveW(m.slot_a, byId, b.structure.seeds);
           const bid = resolveW(m.slot_b, byId, b.structure.seeds);
@@ -861,7 +1009,7 @@ export function createApp(db = null) {
     });
     const rows = brackets.flatMap((b) => b.structure.matches.map((m) => {
       const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
-      const nm = (id) => (id ? db.wrestlers[id]?.name || 'TBD' : 'TBD');
+      const nm = (id) => (id ? db.wrestlers[id]?.name || 'To be decided' : 'To be decided');
       return `<tr><td>${m.bout_number ?? ''}</td><td>${displayMat(m.mat) ?? ''}</td><td>${escH(b.division)}</td><td>${escH(m.round_label)}</td><td>${escH(nm(resolveW(m.slot_a, byId, b.structure.seeds)))}</td><td>${escH(nm(resolveW(m.slot_b, byId, b.structure.seeds)))}</td><td>${m.result ? escH(m.result.outcome) : ''}</td></tr>`;
     })).join('');
     // Tournament date comes from settings (t.info.date), never "today": the
@@ -877,18 +1025,22 @@ export function createApp(db = null) {
       if (e.pinned) bits.push('Pinned');
       if (e.author) bits.push(e.author);
       if (e.at) bits.push(new Date(e.at).toLocaleString());
+      const clears = clearsAfterLabel(e);
+      if (clears) bits.push(clears);
       return bits.length ? ` <span class="bullmeta">· ${escH(bits.join(' · '))}</span>` : '';
     };
     const bullHtml = bullSecs.map(([sec, items]) =>
       `<h3>${escH(sec)}</h3>` + items.map((x) => `<p>${escH(x.text)}${bullMeta(x)}</p>`).join('')).join('') || '<p>No announcements.</p>';
     const genLine = `Generated ${new Date().toLocaleString()} · ${t.demoVersion ? 'demo data v' + t.demoVersion : 'settings v' + (t.config_version ?? 1)}`;
     const payload = JSON.stringify({ tournament: t.name, day, sheets: sheetData }).replace(/</g, '\\u003c');
+    const logoMark = `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#0b1220" stroke="#d8a93c" stroke-width="3"/><path d="M24 10 L36 14 V24 C36 32 30 37 24 39 C18 37 12 32 12 24 V14 Z" fill="none" stroke="#d8a93c" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="23" r="5" fill="none" stroke="#f5f7fa" stroke-width="2.5"/></svg>`;
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${escH(t.name)}</title>`
-      + `<link rel="stylesheet" href="/styles.css"></head><body class="packet" data-print-layout="full">`
+      + `<link rel="stylesheet" href="/styles.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head><body class="packet" data-print-layout="full">`
       + `<div class="packetbar noprint"><strong>Print layout</strong><div class="chipline" id="playout">`
       + `<button class="chip" data-layout="compact">Multiple per page</button>`
       + `<button class="chip on" data-layout="full">One per page, landscape</button></div>`
       + `<button class="big" id="pprint">Print</button></div>`
+      + `<div class="packetbrand">${logoMark}<span>Folkstyle Arena</span></div>`
       + `<h1>Emergency packet — ${escH(t.name)}${demoTag}</h1>`
       + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}${escH(regCut)}</p>`
       + `<h2>Bulletin</h2><p>${escH(genLine)}</p>${bullHtml}`
@@ -898,7 +1050,10 @@ export function createApp(db = null) {
       + `<script>window.PACKET=${payload}<\/script><script src="/bracket.js"><\/script>`
       + `<script>(function(){var root=document.getElementById('sheets');`
       + `window.PACKET.sheets.forEach(function(s){var d=document.createElement('div');d.className='bracket-sheet';root.appendChild(d);`
-      + `window.Bracket.renderSheet(d,{title:window.PACKET.tournament+' — '+s.division,sub:window.PACKET.day,format:s.format,matches:s.matches});});`
+      + `window.Bracket.renderSheet(d,{title:window.PACKET.tournament+' — '+s.division,sub:window.PACKET.day,format:s.format,matches:s.matches});`
+      + `var l=document.createElement('div');l.className='sheetlink';`
+      + `l.innerHTML=s.qr+'<div><b>Bracket link: '+s.link+'</b><br>Add it to the end of the Arena address to open this bracket\\'s public view. Never a family invite.</div>';`
+      + `d.appendChild(l);});`
       + `document.querySelectorAll('#playout .chip').forEach(function(c){c.onclick=function(){`
       + `document.body.dataset.printLayout=c.dataset.layout;`
       + `document.querySelectorAll('#playout .chip').forEach(function(x){x.classList.toggle('on',x===c);});};});`
@@ -908,8 +1063,17 @@ export function createApp(db = null) {
   });
 
   function persist() {
+    if (db && db.__noPersist) return; // test dbs never touch the dev file
     try { saveDb(db); } catch { /* dev persistence best-effort */ }
   }
+
+  // In-process dispatch: the same routing the HTTP server uses, callable
+  // without sockets (tests, probes). Throws {status, message} like HTTP.
+  const dispatch = async (method, pathname, { query = new URLSearchParams(), body = {}, headers = {} } = {}) => {
+    const route = routes.find((r) => r.method === method && r.pattern.test(pathname));
+    if (!route) { const e = new Error('not found'); e.status = 404; throw e; }
+    return route.handler({ req: { headers }, body, match: pathname.match(route.pattern), query });
+  };
 
   const server = createServer(async (req, res) => {
     try {
@@ -920,10 +1084,8 @@ export function createApp(db = null) {
         res.end(bytes);
         return;
       }
-      const route = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
-      if (!route) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); return; }
       const body = await bodyOf(req);
-      const out = await route.handler({ req, body, match: url.pathname.match(route.pattern), query: url.searchParams });
+      const out = await dispatch(req.method, url.pathname, { query: url.searchParams, body, headers: req.headers });
       if (out && out.__html) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(out.__html); return; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(out));
@@ -936,5 +1098,5 @@ export function createApp(db = null) {
     }
   });
 
-  return { server, db, persist };
+  return { server, db, persist, dispatch };
 }

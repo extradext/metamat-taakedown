@@ -9,7 +9,7 @@ import {
   eligibility, restStatus, lastBoutEnd, boutsWrestled, validateResultInput,
   recordResult, resolveWrestler, WRESTLED_OUTCOMES,
 } from './engine.js';
-import { buildArtPrompt, MetaCardArtProvider } from './meta.js';
+import { buildArtPrompt, MetaCardArtProvider, describeMetaFailure } from './meta.js';
 
 // ---------- registration + check-in (Path A/B share one gate) ----------
 export function register(db, tournamentId, wrestlerId, { weight = null, actor = 'guardian' } = {}) {
@@ -72,6 +72,35 @@ export function clockOut(db, tournamentId, table, name, actor = 'table') {
   if (me.role === 'worker1' && rest[0]) rest[0].role = 'worker1';
   audit(db, { tournamentId, actor, action: 'table.clockout', payload: { table, name, promoted: rest[0]?.name || null } });
   return { me, promoted: rest[0] || null };
+}
+
+// Sign-in log for one tournament: every table's crew with sign-in/out times,
+// current shift state, and the handoff (who Worker 1 promoted to, if any).
+// Read-only projection over the clock-in records + clockout audit entries.
+export function tableLog(db, tournamentId) {
+  const tables = {};
+  for (const [key, rec] of Object.entries(db.counters)) {
+    const m = key.match(/^(.+):([^:]+)$/);
+    if (!m || m[1] !== tournamentId || !rec || !Array.isArray(rec.workers)) continue;
+    tables[m[2]] = rec.workers.map((w) => ({
+      name: w.name, role: w.role, in: w.in, out: w.out,
+      shift: w.out ? 'off shift' : 'on shift',
+    }));
+  }
+  const handoffs = {};
+  for (const e of Object.values(db.audit)) {
+    if (e.tournament_id === tournamentId && e.action === 'table.clockout' && e.payload?.promoted) {
+      handoffs[`${e.payload.table}:${e.payload.name}`] = e.payload.promoted;
+    }
+  }
+  return Object.entries(tables)
+    .sort(([a], [b]) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+    .map(([table, workers]) => ({
+      table,
+      workers: workers.map((w) => ({
+        ...w, handoff: handoffs[`${table}:${w.name}`] || null,
+      })),
+    }));
 }
 
 // ---------- scoring with gates (rest gate + bout cap + eligibility) ----------
@@ -289,9 +318,9 @@ const HERO_SETS = {
 };
 
 export async function createCardEvent(db, wrestlerId, seasonId, { answers = {}, heroMix = 'mixed', actor = 'guardian', artProvider = null } = {}) {
-  const existing = Object.values(db.cards).filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId && c.edition === 'standard');
-  if (existing.length > 0) {
-    const err = new Error('One card creation per season — this season already has its set. Milestone editions unlock only when earned.');
+  const lock = seasonCreationState(db, wrestlerId, seasonId);
+  if (lock.locked) {
+    const err = new Error(`One card creation per season — this season already has its set. ${SEASON_LOCK_MESSAGE}. Milestone editions unlock only when earned.`);
     err.code = 'CARD_LOCK';
     throw err;
   }
@@ -323,6 +352,67 @@ export async function createCardEvent(db, wrestlerId, seasonId, { answers = {}, 
   return variants;
 }
 
+// ---------- demo-only regeneration: NEVER a season creation ----------
+// Demo-mode extra only. It mints edition 'demo-regen' cards, which the season
+// lock (it counts edition 'standard' only) never sees; it never touches the
+// on-display record, so a real account's season-locked card is never
+// overwritten; and it audit-logs as card.demo-regenerated, never card.created.
+// It runs ONLY the live Meta path: mock/placeholder art is refused loudly and
+// is never labeled generated.
+export const DEMO_REGEN_EDITION = 'demo-regen';
+export const DEMO_REGEN_LABEL = 'GENERATED';
+
+export async function demoRegenerateCard(db, wrestlerId, seasonId, { answers = {}, heroMix = 'mixed', actor = 'demo', artProvider = null, env = process.env } = {}) {
+  const w = db.wrestlers[wrestlerId];
+  if (!w || !w.is_demo) {
+    const err = new Error('Demo regeneration is demo-only — it runs only for demo wrestlers and never touches a real account\'s season-locked card.');
+    err.code = 'DEMO_ONLY';
+    err.status = 403;
+    throw err;
+  }
+  const provider = artProvider || new MetaCardArtProvider(env);
+  if (provider.isMock) {
+    const err = new Error('Live art is off: demo regeneration needs the real Meta path (USE_REAL_META_AI=true with a Meta API key in the environment). Nothing was made — a placeholder is never labeled generated.');
+    err.code = 'DEMO_LIVE_OFF';
+    err.status = 400;
+    throw err;
+  }
+  const heroes = HERO_SETS[heroMix] || HERO_SETS.mixed;
+  const prompt = buildArtPrompt({ answers, hero: heroes[0] });
+  let made;
+  try {
+    made = await provider.generateArt({ prompt });
+  } catch (err) {
+    const friendly = new Error(describeMetaFailure(err));
+    friendly.code = 'DEMO_LIVE_FAILED';
+    friendly.cause = err;
+    throw friendly;
+  }
+  if (!made || made.isMock) {
+    const err = new Error('Live art came back as a placeholder — nothing was saved, and a placeholder is never labeled generated.');
+    err.code = 'DEMO_LIVE_FAILED';
+    throw err;
+  }
+  const id = newId();
+  const now = new Date().toISOString();
+  db.cards[id] = {
+    id, wrestler_id: wrestlerId, season_id: seasonId, variant_index: 0,
+    edition: DEMO_REGEN_EDITION,
+    generatedLabel: DEMO_REGEN_LABEL, generatedAt: now,
+    template: {
+      layout: answers.layout || 'classic', theme: answers.style || 'classic',
+      border: 'foil', name: w.name || 'Wrestler',
+      moves: answers.moves || ['Snapdown', 'Stand-up', 'Half Nelson'],
+      flavorLine: 'Demo regeneration — a demo extra. Does not count as the season creation.',
+    },
+    art: made.art, artProvider: made.provider, artIsMock: false,
+    created_at: now,
+  };
+  // On-display record deliberately untouched: the season-locked card stays put.
+  audit(db, { actor, action: 'card.demo-regenerated', payload: { wrestlerId, seasonId, cardId: id, heroMix, demoOnly: true } });
+  return db.cards[id];
+}
+
 export function setOnDisplay(db, wrestlerId, cardId, { actor = 'guardian' } = {}) {
   const card = db.cards[cardId];
   if (!card || card.wrestler_id !== wrestlerId) throw new Error('card not in this wrestler album');
@@ -331,25 +421,148 @@ export function setOnDisplay(db, wrestlerId, cardId, { actor = 'guardian' } = {}
   return db.onDisplay[wrestlerId];
 }
 
-const MILESTONES = ['created-profile', 'wrestled-one', 'won-one', 'won-five'];
+// A finalized result: recorded through the real scoring path (recordResult via
+// scoreMatch / table finalize), which stamps status + result + ended_at +
+// scored_by. Live or in-progress table input (live_score with no result) and
+// hand-written completed rows without an end stamp never count.
+export function isFinalizedResult(m) {
+  return !!(m && m.status === 'completed' && m.result && m.ended_at);
+}
+
+// Single source for the season-lock button state: the server lock, the album
+// payload, and the client CREATE area all read this shape. Standard editions
+// only — demo regenerations, photos, and milestones never count as creations.
+export const SEASON_LOCK_MESSAGE = 'Season creation used — next season or a paid change can create a new card';
+export function seasonCreationState(db, wrestlerId, seasonId) {
+  const used = Object.values(db.cards)
+    .filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId && c.edition === 'standard').length;
+  const locked = used > 0;
+  return {
+    used: locked ? 1 : 0, remaining: locked ? 0 : 1, locked,
+    message: locked ? SEASON_LOCK_MESSAGE : `Season ${seasonId}: 1 creation available.`,
+  };
+}
+
+// Milestones unlock ONLY from finalized results. Legacy profile-era edition
+// names still display in old albums but are never newly earned or minted.
+export const MILESTONES = ['wrestled-one', 'won-one', 'won-five'];
+export const LEGACY_MILESTONES = ['created-profile'];
 export function earnedMilestones(db, wrestlerId) {
-  const matches = Object.values(db.matches);
   let wrestled = 0; let won = 0;
-  for (const m of Object.values(db.brackets).flatMap((b) => b.structure.matches)) {
-    void matches;
-    if (m.status !== 'completed' || !m.result) continue;
-    if (m.result.winnerId === wrestlerId || m.result.loserId === wrestlerId) {
-      if (WRESTLED_OUTCOMES.includes(m.result.outcome)) {
-        wrestled += 1;
-        if (m.result.winnerId === wrestlerId) won += 1;
-      }
+  for (const b of Object.values(db.brackets)) {
+    for (const m of b.structure.matches) {
+      if (!isFinalizedResult(m)) continue;
+      if (m.result.winnerId !== wrestlerId && m.result.loserId !== wrestlerId) continue;
+      if (!WRESTLED_OUTCOMES.includes(m.result.outcome)) continue; // admin outcomes are not wrestled bouts
+      wrestled += 1;
+      if (m.result.winnerId === wrestlerId) won += 1;
     }
   }
-  const earned = new Set(['created-profile']);
+  const earned = new Set();
   if (wrestled >= 1) earned.add('wrestled-one');
   if (won >= 1) earned.add('won-one');
   if (won >= 5) earned.add('won-five');
   return earned;
+}
+
+// Each milestone listed with the finalized bout(s) that earned it, plus the
+// minted card id when already claimed — shown immediately after finalizing.
+export function milestoneEarnings(db, wrestlerId) {
+  const bouts = [];
+  for (const b of Object.values(db.brackets)) {
+    for (const m of b.structure.matches) {
+      if (!isFinalizedResult(m)) continue;
+      if (m.result.winnerId !== wrestlerId && m.result.loserId !== wrestlerId) continue;
+      if (!WRESTLED_OUTCOMES.includes(m.result.outcome)) continue;
+      bouts.push({
+        division: b.division || b.id, bout: m.bout_number, mat: m.mat, round: m.round_label,
+        outcome: m.result.outcome, won: m.result.winnerId === wrestlerId,
+        scoreA: m.result.scoreA ?? null, scoreB: m.result.scoreB ?? null, ended: m.ended_at,
+      });
+    }
+  }
+  bouts.sort((x, y) => String(x.ended).localeCompare(String(y.ended)));
+  const wins = bouts.filter((x) => x.won);
+  const minted = {};
+  for (const c of Object.values(db.cards)) {
+    if (c.wrestler_id === wrestlerId && (MILESTONES.includes(c.edition) || LEGACY_MILESTONES.includes(c.edition))) {
+      minted[c.edition] = c.id;
+    }
+  }
+  return [
+    { milestone: 'wrestled-one', earned: bouts.length >= 1, via: bouts.slice(0, 1), cardId: minted['wrestled-one'] || null },
+    { milestone: 'won-one', earned: wins.length >= 1, via: wins.slice(0, 1), cardId: minted['won-one'] || null },
+    { milestone: 'won-five', earned: wins.length >= 5, via: wins.slice(0, 5), cardId: minted['won-five'] || null },
+  ];
+}
+
+// Album grouping: the on-display card, this season's variants (standard,
+// demo regenerations, photos), milestone editions, and retired cards (older
+// seasons or explicitly retired). Sections always render, even when empty.
+export function albumSections(cards, onDisplayId) {
+  const seasons = [...new Set(cards.map((c) => c.season_id))].sort();
+  const currentSeason = seasons[seasons.length - 1] || 'S1';
+  const onDisplay = cards.find((c) => c.id === onDisplayId) || null;
+  const variants = []; const milestones = []; const retired = [];
+  for (const c of cards) {
+    if (c.retired || c.season_id !== currentSeason) { retired.push(c); continue; }
+    if (c.edition === 'standard' || c.edition === 'demo-regen' || c.edition === 'photo') variants.push(c);
+    else milestones.push(c);
+  }
+  return { currentSeason, onDisplay, variants, milestones, retired };
+}
+
+// Card header context: team, weight, division, and the finalized record.
+// Display-only — never an input to seeding, ranking, or matching.
+export function cardContext(db, wrestlerId, tournamentId = 'demo-tournament') {
+  const w = db.wrestlers[wrestlerId];
+  if (!w) return null;
+  const regs = Object.values(db.registrations).filter((r) => r.wrestler_id === wrestlerId);
+  const reg = regs.find((r) => r.tournament_id === tournamentId) || regs[0] || {};
+  let division = null;
+  for (const b of Object.values(db.brackets)) {
+    if ((b.structure.seeds || []).includes(wrestlerId)) { division = b.division; break; }
+  }
+  let wins = 0; let losses = 0;
+  for (const b of Object.values(db.brackets)) {
+    for (const m of b.structure.matches) {
+      if (!isFinalizedResult(m)) continue;
+      if (!WRESTLED_OUTCOMES.includes(m.result.outcome)) continue;
+      if (m.result.winnerId === wrestlerId) wins += 1;
+      else if (m.result.loserId === wrestlerId) losses += 1;
+    }
+  }
+  return {
+    id: w.id, name: w.name, grade: w.grade || '',
+    team: w.team_history?.at(-1)?.team || 'Unattached',
+    weight: reg.weighinWeight ?? reg.registeredWeight ?? null,
+    division, record: { wins, losses },
+  };
+}
+
+// Uploaded-photo cards: framed, labeled PHOTO, never AI-regenerated. Photo
+// editions never count as the season creation. samApplied is true only when
+// the SAM cut-out call actually succeeded — never claimed otherwise.
+export function savePhotoCard(db, wrestlerId, seasonId, photo, { samApplied = false, actor = 'guardian' } = {}) {
+  if (!photo || typeof photo !== 'string') throw new Error('photo required');
+  const w = db.wrestlers[wrestlerId];
+  if (!w) throw new Error('wrestler not found');
+  const variant_index = Object.values(db.cards)
+    .filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId).length;
+  const id = newId();
+  const now = new Date().toISOString();
+  db.cards[id] = {
+    id, wrestler_id: wrestlerId, season_id: seasonId, variant_index,
+    edition: 'photo', photoSource: true, samApplied: !!samApplied,
+    template: {
+      layout: 'classic', theme: 'photo', border: 'foil', name: w.name || 'Wrestler',
+      moves: ['Snapdown', 'Stand-up', 'Half Nelson'],
+      flavorLine: 'Card flavour — not wrestling ability. Never used for seeding, ranking, or matching.',
+    },
+    art: photo, artProvider: 'upload', artIsMock: false, created_at: now,
+  };
+  audit(db, { actor, action: 'card.photo', payload: { wrestlerId, seasonId, cardId: id, samApplied: !!samApplied } });
+  return db.cards[id];
 }
 
 export async function mintMilestone(db, wrestlerId, seasonId, milestone, { actor = 'system', artProvider = null } = {}) {
@@ -395,11 +608,18 @@ export function checkHouseholdPin(db, householdId, pin) {
 }
 
 // ---------- family sharing: time-limited revocable QR invite, guardian approval ----------
+// One invite, two readings of the same grant: a long QR token plus a short
+// manual code (up to 6 digits) for typing. Either one accepts or revokes;
+// both die on expiry or revoke. No shared credentials ever travel here.
 export function createInvite(db, wrestlerId, { by, ttlMin = 60 * 24 } = {}) {
   const token = randomBytes(16).toString('hex');
+  const taken = new Set(Object.values(db.counters)
+    .filter((c) => c && c.code).map((c) => c.code));
+  let code = '';
+  do { code = String(100000 + Math.floor(Math.random() * 900000)); } while (taken.has(code));
   const id = newId();
   db.counters[`invite:${token}`] = {
-    id, wrestler_id: wrestlerId, by,
+    id, wrestler_id: wrestlerId, by, code,
     expires_at: new Date(Date.now() + ttlMin * 60000).toISOString(),
     revoked: false, used_by: null,
   };
@@ -407,8 +627,18 @@ export function createInvite(db, wrestlerId, { by, ttlMin = 60 * 24 } = {}) {
   return { token, ...db.counters[`invite:${token}`] };
 }
 
-export function acceptInvite(db, token, accountId) {
-  const inv = db.counters[`invite:${token}`];
+export function findInvite(db, tokenOrCode) {
+  if (db.counters[`invite:${tokenOrCode}`]) {
+    return { key: `invite:${tokenOrCode}`, inv: db.counters[`invite:${tokenOrCode}`] };
+  }
+  const hit = Object.entries(db.counters)
+    .find(([, c]) => c && c.wrestler_id && c.code === String(tokenOrCode));
+  if (hit) return { key: hit[0], inv: hit[1] };
+  return { key: null, inv: null };
+}
+
+export function acceptInvite(db, tokenOrCode, accountId) {
+  const { inv } = findInvite(db, tokenOrCode);
   if (!inv || inv.revoked) throw new Error('invite is invalid or revoked');
   if (new Date(inv.expires_at) < new Date()) throw new Error('invite expired');
   inv.used_by = accountId;
@@ -416,6 +646,15 @@ export function acceptInvite(db, token, accountId) {
   db.guardianLinks[key] = { wrestler_id: inv.wrestler_id, account_id: accountId, status: 'pending' };
   audit(db, { actor: accountId, action: 'sharing.accepted', payload: { wrestlerId: inv.wrestler_id } });
   return db.guardianLinks[key];
+}
+
+export function revokeInvite(db, tokenOrCode, by) {
+  const { inv } = findInvite(db, tokenOrCode);
+  if (!inv) throw new Error('invite not found');
+  if (inv.revoked) throw new Error('invite is already revoked');
+  inv.revoked = true;
+  audit(db, { actor: by, action: 'sharing.revoked', payload: { wrestlerId: inv.wrestler_id } });
+  return { ok: true };
 }
 
 export function approveGuardian(db, wrestlerId, accountId, approver) {
@@ -445,13 +684,23 @@ export function kidConflicts(db, tournamentId, wrestlerIds) {
       if (x.bout_number == null || y.bout_number == null) continue;
       const apart = Math.abs(x.bout_number - y.bout_number);
       if (x.mat === y.mat && apart === 0) {
-        alerts.push({ level: 'red', pair: [ids[i], ids[j]], message: 'Overlapping bouts — tell the organizer; only they can move a match.' });
+        alerts.push({ level: 'red', pair: [ids[i], ids[j]], message: 'Overlapping matches — tell the organizer; only they can move a match.' });
       } else if (apart <= 2) {
         alerts.push({ level: 'yellow', pair: [ids[i], ids[j]], message: `${apart} bout(s) apart — close / transit-risk.` });
       }
     }
   }
   return { upcoming, alerts, updated_at: new Date().toISOString() };
+}
+
+// Next-match truth: a wrestler's next bout is "current" (NOW) exactly when
+// THAT bout is live/in-progress — never by comparing against other mats'
+// bouts. Completed bouts are never next (nextBoutFor skips them) and never
+// current. One source for the snapshot flag and its tests.
+export function isLiveBout(db, bracketId, matchId) {
+  const b = db.brackets[bracketId];
+  const m = b?.structure.matches.find((x) => x.id === matchId);
+  return !!(m && m.status !== 'completed' && (m.status === 'in-progress' || m.live_score != null));
 }
 
 export function nextBoutFor(db, tournamentId, wrestlerId) {

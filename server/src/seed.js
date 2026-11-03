@@ -1,9 +1,11 @@
 // seed.js — Synthetic DEMO data only. No real children, photos, or private
 // data. Run: `node server/src/seed.js --write` or `npm run demo:seed`.
 //
-// Demo v2: one populated tournament (4 schools x 8 + 2 unattached = 34
-// wrestlers, 3 double-elim divisions + 1 round robin) with a live scenario:
-// completed bouts, bouts in progress, upcoming bouts, and rest-gate holds.
+// Canonical demo dataset: one populated tournament (4 schools x 9 +
+// 2 unattached = 38 wrestlers; 4 double-elim divisions + 1 round robin)
+// with a live scenario: completed bouts, bouts in progress on every mat,
+// upcoming bouts, and rest-gate holds. Organizer, Tournament stats, and
+// bracket counts all derive from this dataset — nothing hardcodes totals.
 // Scenario bout times are relative (demo_offset_min) and refreshed every
 // boot so the holds read live; outcomes, scores, and winners never change.
 import { loadDb, saveDb, createWrestler } from './stores.js';
@@ -13,7 +15,7 @@ import { generateDoubleElim, generateRoundRobin, resolveWrestler as resolveW } f
 import { register, checkin, setHouseholdPin, tableInput, scoreMatch, giveKudos } from './tournament.js';
 import { buildArtPrompt, mockArt } from './meta.js';
 
-const DEMO_VERSION = 3;
+const DEMO_VERSION = 4;
 const TID = 'demo-tournament';
 
 const SCHOOLS = [
@@ -124,9 +126,11 @@ function seedDE(db, bracketId, division, seedIds, mats, d, startBout) {
   ];
   seedResult(db, bracketId, wb1[0], pick(0), ...outs[d % 3]);
   seedResult(db, bracketId, wb1[1], pick(1), ...outs[(d + 1) % 3]);
-  // Third R1 bout is live right now.
+  // Third AND fourth R1 bouts are live right now — one on each side of the
+  // mat pair, so every mat header's Now is a bout actually in progress
+  // (nothing downstream is seeded from wb1[3], so leaving it live is safe).
   tableInput(db, TID, bracketId, wb1[2].id, { red: 4, green: 2, period: 2, clockSec: 65 }, { actor: 'seed' });
-  seedResult(db, bracketId, wb1[3], pick(3), ...outs[(d + 2) % 3]);
+  tableInput(db, TID, bracketId, wb1[3].id, { red: 3, green: 3, period: 2, clockSec: 95 + d * 10 }, { actor: 'seed' });
   // Winners semi with two clear wrestlers, just finished — winner is HELD.
   seedResult(db, bracketId, r2[0], pick(4), 'decision', 5, 3, 8, { clockSec: 360 });
   // Consol opener between two long-clear losers.

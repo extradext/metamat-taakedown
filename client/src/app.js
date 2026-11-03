@@ -52,6 +52,20 @@ const ICONS = {
   rest: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 3"/>',
   result: '<circle cx="12" cy="12" r="8"/><path d="M8.5 12.3l2.4 2.4 4.6-5.4"/>',
   pin: '<path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z"/><path d="M12 15v6"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c.8-3.8 3.8-5.5 7.5-5.5s6.7 1.7 7.5 5.5"/>',
+  grid: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M9.5 4v16M3.5 12h6"/>',
+  trophy: '<path d="M7 4h10v4.5a5 5 0 0 1-10 0z"/><path d="M7 5.5H4.5a2.5 2.5 0 0 0 2.7 4.5M17 5.5h2.5a2.5 2.5 0 0 1-2.7 4.5M12 13.5V17M8.5 20.5h7"/>',
+  note: '<path d="M5 4h14v11.5H9.5L5 20z"/><path d="M9 8.5h6M9 12h4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.8M12 18.7v2.8M2.5 12h2.8M18.7 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2.5"/>',
+  plus: '<circle cx="12" cy="12" r="8"/><path d="M12 8.5v7M8.5 12h7"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  link: '<path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1.5 1.5M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1.5-1.5"/>',
+  check: '<path d="M4.5 12.5l5 5L19.5 7"/>',
+  ondeck: '<circle cx="12" cy="12" r="8"/><path d="M8 12h7M12.5 8.5L16 12l-3.5 3.5"/>',
+  hole: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.6"/>',
+  alert: '<path d="M12 3.5L21 20H3z"/><path d="M12 9.5V14M12 16.8v.4"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/>',
 };
 function icon(name) {
   return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
@@ -66,6 +80,49 @@ function schoolChip(team) {
   for (const c of team) h = (h * 31 + c.charCodeAt(0)) % 997;
   return '<span class="sch sch' + (h % 6) + '">' + esc(team) + '</span>';
 }
+// Vector Arena mark (mat circle + shield). The same mark lives in the header,
+// the landing hero, the packet, and the favicon. Wordmark text always sits in
+// HTML beside the mark — artwork layers never render lettering.
+const LOGO_MARK = '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#0b1220" stroke="#d8a93c" stroke-width="3"/><path d="M24 10 L36 14 V24 C36 32 30 37 24 39 C18 37 12 32 12 24 V14 Z" fill="none" stroke="#d8a93c" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="23" r="5" fill="none" stroke="#f5f7fa" stroke-width="2.5"/></svg>';
+// Flat limited-palette illustrations (navy / gold / slate only): landing hero,
+// empty brackets / notes / viewable lists, and the completed celebration.
+const ILLUS = {
+  hero: '<svg viewBox="0 0 200 120" aria-hidden="true"><ellipse cx="100" cy="96" rx="88" ry="16" fill="#141d33" stroke="#d8a93c" stroke-width="3"/><ellipse cx="100" cy="90" rx="52" ry="10" fill="none" stroke="#8fa0b8" stroke-width="2.5"/><circle cx="100" cy="52" r="30" fill="#0b1220" stroke="#d8a93c" stroke-width="3"/><path d="M100 30 L118 36 V52 C118 63 109 70 100 73 C91 70 82 63 82 52 V36 Z" fill="none" stroke="#f5f7fa" stroke-width="2.5" stroke-linejoin="round"/><g fill="#d8a93c"><circle cx="52" cy="40" r="4"/><circle cx="148" cy="40" r="4"/><circle cx="70" cy="24" r="2.5"/><circle cx="130" cy="24" r="2.5"/></g></svg>',
+  brackets: '<svg viewBox="0 0 200 120" aria-hidden="true"><g fill="#141d33" stroke="#8fa0b8" stroke-width="2.5"><rect x="14" y="14" width="64" height="20" rx="6"/><rect x="14" y="44" width="64" height="20" rx="6"/><rect x="14" y="74" width="64" height="20" rx="6"/><rect x="122" y="44" width="64" height="20" rx="6"/></g><g stroke="#d8a93c" stroke-width="2.5" fill="none"><path d="M78 24h16v30h28M78 54h16M78 84h16V54h28"/></g><circle cx="100" cy="104" r="5" fill="none" stroke="#f5f7fa" stroke-width="2.5"/></svg>',
+  notes: '<svg viewBox="0 0 200 120" aria-hidden="true"><rect x="60" y="10" width="80" height="100" rx="8" fill="#141d33" stroke="#d8a93c" stroke-width="3"/><g stroke="#8fa0b8" stroke-width="2.5"><path d="M74 34h52M74 50h52M74 66h34"/></g><circle cx="150" cy="88" r="14" fill="#0b1220" stroke="#f5f7fa" stroke-width="2.5"/><path d="M144 88h12M150 82v12" stroke="#d8a93c" stroke-width="2.5"/></svg>',
+  scanned: '<svg viewBox="0 0 200 120" aria-hidden="true"><rect x="62" y="12" width="76" height="76" rx="8" fill="#f5f7fa"/><g fill="#0b1220"><rect x="70" y="20" width="20" height="20"/><rect x="110" y="20" width="20" height="20"/><rect x="70" y="60" width="20" height="20"/><rect x="100" y="50" width="10" height="10"/><rect x="114" y="64" width="12" height="12"/></g><circle cx="150" cy="88" r="14" fill="#0b1220" stroke="#d8a93c" stroke-width="2.5"/><path d="M144 88h12M150 82v12" stroke="#f5f7fa" stroke-width="2.5"/></svg>',
+  celebrate: '<svg viewBox="0 0 200 120" aria-hidden="true"><path d="M100 12 L132 24 V56 C132 80 116 94 100 100 C84 94 68 80 68 56 V24 Z" fill="#141d33" stroke="#d8a93c" stroke-width="3" stroke-linejoin="round"/><path d="M100 34l7 14 15 2-11 11 3 15-14-7-14 7 3-15-11-11 15-2z" fill="#d8a93c"/><g fill="#8fa0b8"><circle cx="44" cy="40" r="4"/><circle cx="156" cy="40" r="4"/><circle cx="56" cy="84" r="3"/><circle cx="144" cy="84" r="3"/></g></svg>',
+};
+function emptyWrap(illus, title, body) {
+  return '<div class="emptywrap">' + (ILLUS[illus] || '') + '<div class="etitle">' + esc(title) + '</div><p>' + esc(body) + '</p></div>';
+}
+// Shimmer skeleton painted on every view switch so navigation feels instant.
+const VIEW_LABELS = { landing: 'Welcome', wrestler: 'My Wrestler', spectator: 'Brackets', tournament: 'Tournament', notes: 'Notes', organizer: 'Organizer', table: 'Table', guest: 'Bracket Generator', studio: 'Card Studio' };
+function viewSkeleton(mode) {
+  return '<div class="loading" aria-live="polite"><div class="skel"></div><div class="skel short"></div><p>Loading ' + esc(VIEW_LABELS[mode] || 'view') + '…</p></div>';
+}
+// Display settings: persisted, applied as body classes, and honored by the
+// studio tilt. Saved choices win; otherwise the OS preferences are the default.
+function loadSettings() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('fa-settings') || '{}'); } catch { /* private mode */ }
+  S.settings = {
+    reduceMotion: saved.reduceMotion ?? matchMedia('(prefers-reduced-motion: reduce)').matches,
+    highContrast: saved.highContrast ?? matchMedia('(prefers-contrast: more)').matches,
+  };
+}
+function applySettings() {
+  if (!S.settings) loadSettings();
+  document.body.classList.toggle('rm', !!S.settings.reduceMotion);
+  document.body.classList.toggle('hc', !!S.settings.highContrast);
+  const r = document.getElementById('set-rm');
+  if (r) r.checked = !!S.settings.reduceMotion;
+  const h = document.getElementById('set-hc');
+  if (h) h.checked = !!S.settings.highContrast;
+}
+function saveSettings() {
+  try { localStorage.setItem('fa-settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
+}
 const BULL_SECTIONS = ['Alerts', 'Parking', 'Snacks/Concessions', 'Raffles', 'General Info'];
 // Mirrors the server normalize: legacy strings plus {text, author, at, pinned,
 // expires} objects. Expired entries never display; pinned sort first, stably.
@@ -76,10 +133,23 @@ function normBull(entries) {
     if (typeof e === 'string') live.push({ text: e, author: null, at: null, pinned: false });
     else if (e && typeof e.text === 'string') {
       if (e.expires && String(e.expires) <= now) continue;
-      live.push({ text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned });
+      const norm = { text: e.text, author: e.author || null, at: e.at || null, pinned: !!e.pinned };
+      if (e.expires) norm.expires = e.expires;
+      live.push(norm);
     }
   }
   return [...live.filter((e) => e.pinned), ...live.filter((e) => !e.pinned)];
+}
+// Client mirror of the server clears-after line: derived from the posting +
+// expiry the organizer set, so app, tabs, and packet all read the same.
+function clearsAfter(e) {
+  if (!e || !e.expires) return '';
+  if (e.at) {
+    const hrs = Math.round((new Date(e.expires).getTime() - new Date(e.at).getTime()) / 3600000);
+    if (Number.isFinite(hrs) && hrs > 0) return 'Clears after ' + hrs + 'h';
+  }
+  try { return 'Clears ' + new Date(e.expires).toLocaleString(); }
+  catch { return 'Clears soon'; }
 }
 function parseBulletin(entries) {
   const out = { Alerts: [], Parking: [], 'Snacks/Concessions': [], Raffles: [], 'General Info': [] };
@@ -109,12 +179,59 @@ function bullMeta(e) {
   if (e.pinned) bits.push('Pinned');
   if (e.author) bits.push(e.author);
   if (e.at) { try { bits.push(new Date(e.at).toLocaleString()); } catch { /* bad date: skip */ } }
+  const clears = clearsAfter(e);
+  if (clears) bits.push(clears);
   return bits.length ? ' <span class="bullmeta">· ' + esc(bits.join(' · ')) + '</span>' : '';
+}
+// Client mirror of the server scan-code renderer (same deterministic grid)
+// plus the one-bracket public-view short link. The hash only ever expands a
+// public bracket — it can never carry a guardian invite.
+function bracketShortLink(id) { return '#b=' + encodeURIComponent(id); }
+function qrSvg(payload, size) {
+  size = size || 84;
+  const s = String(payload);
+  const n = 21;
+  const inFinder = (x, y) => (x < 8 && y < 8) || (x >= n - 8 && y < 8) || (x < 8 && y >= n - 8);
+  const finderOn = (x, y) => {
+    const lx = x < 8 ? x : x >= n - 8 ? x - (n - 7) : -1;
+    const ly = y < 8 ? y : y >= n - 8 ? y - (n - 7) : -1;
+    if (lx < 0 || ly < 0 || lx > 6 || ly > 6) return false;
+    if (lx === 0 || lx === 6 || ly === 0 || ly === 6) return true;
+    return lx >= 2 && lx <= 4 && ly >= 2 && ly <= 4;
+  };
+  const bit = (x, y) => {
+    let h = 2166136261;
+    const mix = (v) => { h ^= v & 0xffffffff; h = Math.imul(h, 16777619); };
+    for (let i = 0; i < s.length; i++) mix(s.charCodeAt(i));
+    mix(x * 31 + 7); mix(y * 57 + 13);
+    return (h >>> 0) % 2 === 0;
+  };
+  let cells = '<rect x="0" y="0" width="' + n + '" height="' + n + '" fill="#fff"/>';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (inFinder(x, y) ? finderOn(x, y) : bit(x, y)) {
+      cells += '<rect x="' + x + '" y="' + y + '" width="1" height="1" fill="#111"/>';
+    }
+  }
+  return '<svg class="qr" viewBox="0 0 ' + n + ' ' + n + '" width="' + size + '" height="' + size + '" role="img" aria-label="Scan code">' + cells + '</svg>';
+}
+// Scanned brackets accumulate here (localStorage): every bracket sheet the
+// device opens joins the Viewable Brackets list in Bracket Generator.
+function scannedBrackets() {
+  try { return JSON.parse(localStorage.getItem('fa-scanned') || '[]'); }
+  catch { return []; }
+}
+function rememberScanned(id, division) {
+  if (!id) return;
+  try {
+    const list = scannedBrackets().filter((x) => x && x.id !== id);
+    list.unshift({ id, division: division || id, at: new Date().toISOString() });
+    localStorage.setItem('fa-scanned', JSON.stringify(list.slice(0, 20)));
+  } catch { /* no storage */ }
 }
 function bulletinHTML(entries) {
   const g = parseBulletin(entries);
   const shown = BULL_SECTIONS.filter((s) => g[s].length);
-  if (!shown.length) return '<p>No announcements.</p>';
+  if (!shown.length) return '<p>No announcements yet — the organizer posts schedule changes and raffle news here.</p>';
   return shown.map((s) => '<h3>' + s + '</h3>' + g[s].map((t) => '<p>' + esc(t.text) + bullMeta(t) + '</p>').join('')).join('');
 }
 // Display mats are simple numbers: a split surface 1A/1B shows as Mat 1/Mat 2.
@@ -126,7 +243,10 @@ function mapMat(raw) {
   if (!m[2]) return Number(m[1]);
   return (Number(m[1]) - 1) * 2 + (m[2].toUpperCase().charCodeAt(0) - 64);
 }
-function matLabel(raw) { const n = mapMat(raw); return n == null ? '—' : 'Mat ' + n; }
+function matLabel(raw) { const n = mapMat(raw); return n == null ? 'Mat TBD' : 'Mat ' + n; }
+// The server sends 'TBD' as its undecided-slot sentinel; the app always shows
+// the explained words, never the bare code.
+function tbdName(n) { return n === 'TBD' ? 'To be decided' : n; }
 // Tournament-wide mat clock in match numbers (never clock times): the live
 // bout if one is wrestling, else the next upcoming bout number on that mat.
 function matNow(allMatches, mat) {
@@ -136,6 +256,20 @@ function matNow(allMatches, mat) {
   const live = q.find((m) => m.live || m.status === 'in-progress');
   return { now: (live || q[0]).bout, live: !!live };
 }
+// Next-match truth (client mirror of server nextBoutFor): the wrestler's
+// actual next is the earliest incomplete bout involving them. Completed
+// bouts are never next. Match detail uses this so a stale snapshot can
+// never paint a past bout as "Your next".
+function nextFor(board, wid) {
+  if (!board || !wid) return null;
+  let best = null;
+  for (const b of board.brackets || []) for (const m of b.matches || []) {
+    if (m.status === 'completed' || m.bout == null) continue;
+    if (m.aid !== wid && m.bid !== wid) continue;
+    if (!best || m.bout < best.bout) best = m;
+  }
+  return best;
+}
 function boutEst(board, nextMatch) {
   if (!nextMatch || nextMatch.mat == null || nextMatch.bout == null) return null;
   const all = (board.brackets || []).flatMap((b) => b.matches || []);
@@ -143,16 +277,16 @@ function boutEst(board, nextMatch) {
   if (!now) return null;
   return { mat: mapMat(nextMatch.mat), now: now.now, yours: nextMatch.bout, away: nextMatch.bout - now.now };
 }
-function estStrip(e) {
+function estStrip(e, whose) {
   if (!e) return '';
   const away = e.away <= 0 ? 'on now' : '<b>' + e.away + ' bouts away</b>';
   return '<div class="eststrip">' + icon('mat') + ' Mat ' + esc(e.mat) + ' · Now: Match ' + esc(e.now)
-    + ' · Your next: Match ' + esc(e.yours) + ' · ' + away + '</div>';
+    + ' · ' + esc(whose || 'Your next') + ': Match ' + esc(e.yours) + ' · ' + away + '</div>';
 }
 // '2026-11-07' -> 'Sat Nov 7, 2026' (parsed as local parts, never UTC-shifted).
 function fmtDate(iso) {
   const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return iso || '—';
+  if (!m) return iso || 'Date TBA';
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
   const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
@@ -169,14 +303,18 @@ function queueTag(board, m) {
   return null;
 }
 // One status system everywhere: same pills, same icons, same wording.
+// Every pill pairs its icon with a text label — never colour alone.
 function statusPill(m, board) {
   if (!m) return '';
   if (m.status === 'completed') return '<span class="pill p-done">' + icon('result') + ' Final</span>';
-  if (m.live || m.status === 'in-progress') return '<span class="pill p-live">' + icon('status') + ' LIVE</span>';
+  if (m.live || m.status === 'in-progress') return '<span class="pill p-live">' + icon('status') + ' Live</span>';
   const tag = board ? queueTag(board, m) : null;
-  if (tag === 'ondeck') return '<span class="pill p-mid">On deck</span>';
-  if (tag === 'hole') return '<span class="pill p-todo">In the hole</span>';
-  return '<span class="pill p-todo">Upcoming</span>';
+  if (tag === 'ondeck') return '<span class="pill p-mid">' + icon('ondeck') + ' On deck</span>';
+  if (tag === 'hole') return '<span class="pill p-todo">' + icon('hole') + ' In the hole</span>';
+  return '<span class="pill p-todo">' + icon('clock') + ' Upcoming</span>';
+}
+function heldPill(detail) {
+  return '<span class="pill p-held">' + icon('rest') + ' Held' + (detail ? ' — ' + esc(detail) : '') + '</span>';
 }
 // Deterministic multi-kid proximity: bouts apart + same/different mat, never clock times.
 function proxHTML(mine, c) {
@@ -253,18 +391,35 @@ function matchupHTML(m, board) {
   const winB = !!(done && m.wid && m.bid && m.wid === m.bid);
   const sub = done
     ? icon('result') + ' ' + esc(m.outcome || '') + ' · ' + esc(m.scoreA ?? '–') + '–' + esc(m.scoreB ?? '–')
-    : m.live ? icon('status') + ' In progress · Match ' + esc(m.bout ?? '?') + ' · ' + matLabel(m.mat)
+    : m.live ? icon('status') + ' Live · Match ' + esc(m.bout ?? '?') + ' · ' + matLabel(m.mat)
     : icon('mat') + ' Match ' + esc(m.bout ?? '?') + ' · ' + matLabel(m.mat);
   return '<div class="matchup">'
-    + '<div class="side' + (winA ? ' winnerglow' : '') + '">' + cardFace({ template: { name: m.a } }, true) + '</div>'
-    + '<div class="side' + (winB ? ' winnerglow' : '') + '">' + cardFace({ template: { name: m.b } }, true) + '</div>'
+    + '<div class="side' + (winA ? ' winnerglow' : '') + '">' + cardFace({ template: { name: tbdName(m.a) } }, true) + '</div>'
+    + '<div class="side' + (winB ? ' winnerglow' : '') + '">' + cardFace({ template: { name: tbdName(m.b) } }, true) + '</div>'
     + '</div><div class="boutmeta">' + statusPill(m, board) + ' ' + sub + '</div>';
+}
+const SIL_ART = '<svg class="silart" viewBox="0 0 500 360" aria-hidden="true">'
+  + '<defs><linearGradient id="appsilg" x1="0" y1="0" x2="1" y2="1">'
+  + '<stop offset="0" stop-color="#3a4a5c"/><stop offset="1" stop-color="#141a21"/>'
+  + '</linearGradient></defs><rect width="500" height="360" fill="url(#appsilg)"/>'
+  + '<ellipse cx="250" cy="330" rx="170" ry="22" fill="rgba(0,0,0,.35)"/>'
+  + '<g stroke="rgba(8,10,14,.94)" stroke-width="34" stroke-linecap="round" fill="none">'
+  + '<path d="M258 148 L232 222 L172 288"/><path d="M258 148 L296 210 L352 236"/>'
+  + '<path d="M258 158 L184 178 L138 150"/><path d="M258 158 L330 172 L372 140"/></g>'
+  + '<circle cx="262" cy="112" r="33" fill="rgba(8,10,14,.94)"/></svg>';
+function cardSource(card) {
+  if (!card || !card.art) return 'SAMPLE ART';
+  if (card.edition === 'photo' || card.photoSource) return 'PHOTO';
+  if (card.artIsMock) return 'SAMPLE ART';
+  return 'GENERATED';
 }
 function cardFace(card, mini = false) {
   if (!card) return '<div class="' + (mini ? 'minicard' : 'cardface') + ' fin-classic"><div class="inset"><div class="nameplate"><span>No card yet</span></div><div class="artwin"></div></div><div class="finish" aria-hidden="true"></div></div>';
   const t = card.template || {};
-  const ribbon = card.artIsMock ? '<div class="artribbon">SAMPLE ART</div>' : '';
-  const noart = !mini && !card.art ? '<div class="noart">No photo yet</div>' : '';
+  const src = cardSource(card);
+  const rcls = src === 'GENERATED' ? 'genribbon' : src === 'PHOTO' ? 'photoribbon' : 'artribbon';
+  const ribbon = (card.art || !mini) ? '<div class="' + rcls + '">' + src + '</div>' : '';
+  const noart = !mini && !card.art ? SIL_ART : '';
   return '<div class="' + (mini ? 'minicard' : 'cardface') + ' fin-' + cardTheme(card) + (t.layout === 'full' ? ' fullpic' : '') + '">'
     + '<div class="inset"><div class="nameplate"><span>' + esc(t.name) + '</span><span class="ed">' + esc(card.edition || '') + '</span></div>'
     + '<div class="artwin">' + ribbon + noart + (card.art ? '<img alt="Card art" src="' + card.art + '">' : '') + '</div>'
@@ -291,10 +446,6 @@ async function myWrestler() {
   let snap;
   try { snap = await api('/wrestler/' + S.wrestlerId + '/snapshot' + (S.tournamentId ? '?tournamentId=' + S.tournamentId : '')); }
   catch { v.innerHTML = '<div class="panel"><p>Could not load. Check connection.</p></div>'; return; }
-  const nx = snap.next || {};
-  const sq2 = nx.current ? '<div class="square now"><span class="k">NEXT MATCH</span><span class="v">NOW · ' + esc(nx.bout_number ?? '') + '</span></div>'
-    : nx.bout_number != null ? '<div class="square"><span class="k">NEXT MATCH</span><span class="v">' + esc(nx.bout_number) + '</span></div>'
-      : '<div class="square"><span class="k">NEXT MATCH</span><span class="v">Done</span></div>';
   let board = null;
   try { board = await api('/public/' + (S.tournamentId || 'demo-tournament') + '/spectate'); } catch { /* offline */ }
   const findMatch = (bracketId, matchId) => {
@@ -306,6 +457,16 @@ async function myWrestler() {
     }
     return null;
   };
+  // First-paint truth: the board is fresher than the snapshot. If the
+  // snapshot's next already went Final, drop it — a past bout is never next.
+  if (board && snap.next) {
+    const chk = findMatch(snap.next.bracket_id, snap.next.match_id);
+    if (chk && chk.status === 'completed') snap.next = null;
+  }
+  const nx = snap.next || {};
+  const sq2 = nx.current ? '<div class="square now"><span class="k">NEXT MATCH</span><span class="v">NOW · ' + esc(nx.bout_number ?? '') + '</span></div>'
+    : nx.bout_number != null ? '<div class="square"><span class="k">NEXT MATCH</span><span class="v">' + esc(nx.bout_number) + '</span></div>'
+      : '<div class="square"><span class="k">NEXT MATCH</span><span class="v">Done</span></div>';
   const lastDone = (kidId) => {
     if (!board) return null;
     let best = null;
@@ -319,13 +480,13 @@ async function myWrestler() {
   // Hero = the selected wrestler's next bout (or last, when nothing is left).
   let heroM = snap.next ? findMatch(snap.next.bracket_id, snap.next.match_id) : null;
   let heroTag = heroM ? (snap.next.current ? 'NOW' : 'UP NEXT') : null;
-  if (!heroM) { heroM = lastDone(S.wrestlerId); heroTag = heroM ? 'LAST BOUT' : null; }
-  const heroEst = heroM && heroTag !== 'LAST BOUT' ? boutEst(board, heroM) : null;
+  if (!heroM) { heroM = lastDone(S.wrestlerId); heroTag = heroM ? 'LAST MATCH' : null; }
+  const heroEst = heroM && heroTag !== 'LAST MATCH' ? boutEst(board, heroM) : null;
   const heroOpp = heroM ? (heroM.aid === S.wrestlerId ? heroM.b : heroM.a) : null;
   const hero = heroM ? '<div class="panel hero"><div class="herotop">' + statusPill(heroM, board)
     + '<span class="herotag">' + esc(heroTag) + '</span></div>'
     + '<h2 class="heroname">' + esc(snap.wrestler.name) + '</h2>'
-    + (heroTag !== 'LAST BOUT' && heroOpp ? '<div class="heroopp">vs ' + esc(heroOpp) + ' · Match ' + esc(heroM.bout ?? '?') + ' · ' + matLabel(heroM.mat) + '</div>' : '')
+    + (heroTag !== 'LAST MATCH' && heroOpp ? '<div class="heroopp">vs ' + esc(tbdName(heroOpp)) + ' · Match ' + esc(heroM.bout ?? '?') + ' · ' + matLabel(heroM.mat) + '</div>' : '')
     + (heroEst ? estStrip(heroEst) : '')
     + matchupHTML(heroM, board) + '</div>' : '';
   let bouts = '';
@@ -334,10 +495,17 @@ async function myWrestler() {
     let s = null;
     try { s = await api('/wrestler/' + kid.id + '/snapshot' + (S.tournamentId ? '?tournamentId=' + S.tournamentId : '')); } catch { continue; }
     let m = s.next ? findMatch(s.next.bracket_id, s.next.match_id) : null;
+    if (m && m.status === 'completed') m = null; // stale snapshot: a past bout is never next
     let tag = m ? (s.next.current ? 'NOW' : 'UP NEXT') : null;
-    if (!m) { m = lastDone(kid.id); tag = m ? 'LAST BOUT' : null; }
+    if (!m) { m = lastDone(kid.id); tag = m ? 'LAST MATCH' : null; }
     if (!m) continue;
-    bouts += '<div class="panel"><h3>' + esc(tag) + ' · ' + esc(kid.name) + '</h3>' + matchupHTML(m, board) + '</div>';
+    // Sibling panel: labeled for THAT wrestler, showing THEIR next bout with
+    // their own mat countdown — never the selected wrestler's.
+    const sibEst = tag !== 'LAST MATCH' ? boutEst(board, m) : null;
+    bouts += '<div class="panel"><h3>Also watching — ' + esc(kid.name) + '</h3>'
+      + (tag ? '<div class="herotag">' + esc(tag) + '</div>' : '')
+      + (sibEst ? estStrip(sibEst, kid.name + "'s next") : '')
+      + matchupHTML(m, board) + '</div>';
   }
   const r = snap.rest || {};
   const restLine = r.state === 'held'
@@ -345,7 +513,7 @@ async function myWrestler() {
     : '<p class="clear">' + icon('result') + ' ' + esc(r.message || 'Clear to wrestle.') + '</p>';
   const restRule = r.floorMin != null
     ? '<p class="hint">Rest rule: ' + esc(r.floorMin) + ' min between bouts'
-      + (r.lastEnd ? ' · last bout ended ' + esc(new Date(r.lastEnd).toLocaleTimeString()) : ' · no bouts yet today')
+      + (r.lastEnd ? ' · last match ended ' + esc(new Date(r.lastEnd).toLocaleTimeString()) : ' · no matches yet today')
       + (heroEst && heroEst.away > 0 ? ' · ' + heroEst.away + ' bouts away' : '') + '.</p>' : '';
   const switcher = mine.length > 1 ? '<div class="panel"><h3>My Wrestlers</h3><div class="chipline" id="kidswitch">'
     + mine.map((w) => '<button class="chip' + (w.id === S.wrestlerId ? ' on' : '') + '" data-w="' + w.id + '">' + esc(w.name) + '</button>').join('')
@@ -355,7 +523,7 @@ async function myWrestler() {
     + '<div class="panel"><div class="row"><div><h2 style="margin:0">' + avatar(snap.wrestler.name) + ' ' + esc(snap.wrestler.name) + '</h2>'
     + '<div style="color:var(--muted)">Grade ' + esc(snap.wrestler.grade) + '</div>'
     + '<div style="margin-top:6px">' + schoolChip(snap.wrestler.team) + '</div></div>'
-    + '<div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span><span class="v">' + esc(nx.mat == null ? '—' : mapMat(nx.mat)) + '</span></div>' + sq2 + '</div></div>'
+    + '<div class="squares"><div class="square"><span class="k">' + icon('mat') + ' MAT</span>' + (nx.mat == null ? '<span class="v" title="Mat not assigned yet — check the board at the venue">TBD</span>' : '<span class="v">' + esc(mapMat(nx.mat)) + '</span>') + '</div>' + sq2 + '</div></div>'
     + restLine + restRule
     + '</div>'
     + '<div class="cardframe">' + cardFace(snap.card) + '</div>'
@@ -365,7 +533,7 @@ async function myWrestler() {
     + ((snap.coachFeedback && snap.coachFeedback.length) ? '<div class="panel"><h3>From the coach</h3><p>' + snap.coachFeedback.map(esc).join('</p><p>') + '</p></div>' : '')
     + '</div>'
     + '<details class="menu"><summary>More</summary><div class="menubody">'
-    + '<div class="panel"><h3>Today</h3><p>' + esc(snap.today || 'No bouts yet today.') + '</p></div>'
+    + '<div class="panel"><h3>Today</h3><p>' + esc(snap.today || 'No matches yet today.') + '</p></div>'
     + '<div class="panel"><h3>Warm-up</h3><p>' + esc(pick(WARMUPS)) + '</p>'
     + '<button class="big" id="notew">Add a note for later</button></div>'
     + '</div></details>'
@@ -420,36 +588,59 @@ async function spectator() {
     const ms = b.matches || [];
     const done = ms.filter((m) => m.status === 'completed').length;
     const live = ms.filter((m) => m.live || m.status === 'in-progress').length;
-    if (ms.length && done === ms.length) return { t: 'Complete', c: 'done' };
-    if (live) return { t: 'Live ' + live, c: 'live' };
-    if (done) return { t: done + ' of ' + ms.length + ' decided', c: 'mid' };
-    return { t: 'Upcoming', c: 'todo' };
+    if (ms.length && done === ms.length) return { t: 'Complete', c: 'done', i: 'result' };
+    if (live) return { t: 'Live ' + live, c: 'live', i: 'status' };
+    if (done) return { t: done + ' of ' + ms.length + ' decided', c: 'mid', i: 'ondeck' };
+    return { t: 'Upcoming', c: 'todo', i: 'clock' };
   };
   const wcount = (b) => new Set((b.matches || []).flatMap((m) => [m.aid, m.bid]).filter(Boolean)).size;
   const isComplete = blist.length > 0 && blist.every((b) => (b.matches || []).length > 0 && (b.matches || []).every((m) => m.status === 'completed'));
   const bracketRow = (b, isPinned) => {
     const st = rowStatus(b);
-    const band = parseDiv(b.division).band;
+    // Division + weight band once, in the title — never repeated in the sub.
     return '<div class="brow2" data-brow="' + b.id + '">'
       + '<button class="browmain" data-expand="' + b.id + '" aria-expanded="false"><span class="browtitle">' + icon('weight') + ' ' + esc(b.division) + '</span>'
-      + '<span class="browsub">' + (band ? esc(band) + ' · ' : '') + wcount(b) + ' wrestlers · <span class="pill p-' + st.c + '">' + esc(st.t) + '</span></span></button>'
-      + '<button class="pinbtn' + (isPinned ? ' on' : '') + '" data-pin="' + b.id + '" aria-label="' + (isPinned ? 'Unpin ' : 'Pin ') + esc(b.division) + '">' + (isPinned ? '★' : '☆') + '</button></div>'
+      + '<span class="browsub">' + wcount(b) + ' wrestlers · <span class="pill p-' + st.c + '">' + icon(st.i) + ' ' + esc(st.t) + '</span></span></button>'
+      + '<button class="linkbtn" data-link="' + b.id + '" aria-label="Bracket link for ' + esc(b.division) + '">' + icon('link') + ' <span>Link</span></button>'
+      + '<button class="pinbtn' + (isPinned ? ' on' : '') + '" data-pin="' + b.id + '" aria-label="' + (isPinned ? 'Unpin ' : 'Pin ') + esc(b.division) + '">' + icon('pin') + ' <span class="pinlabel">' + (isPinned ? 'Pinned' : 'Pin') + '</span></button></div>'
+      + '<div class="blinkpan" data-linkpan="' + b.id + '" hidden></div>'
       + '<div class="bracket-sheet" data-mount="' + b.id + '" hidden></div>';
   };
+  const linkPanHTML = (b) => '<div class="sheetlink">' + qrSvg('arena:bracket:' + b.id, 96)
+    + '<div><b>Bracket link: ' + esc(bracketShortLink(b.id)) + '</b><br>'
+    + 'Add it to the end of the Arena address to open this bracket\u2019s public view. '
+    + 'Never a family invite.</div></div>';
   const pinned = pins.map((id) => blist.find((b) => b.id === id)).filter(Boolean);
-  const rest = blist.filter((b) => !pins.includes(b.id));
+  let rest = blist.filter((b) => !pins.includes(b.id));
+  // Club-filtered view (from a club search result): brackets holding club
+  // members, plus each member's next match. Cleared, never sticky.
+  let clubBanner = '';
+  if (S.clubFilter && S.clubFilter.members) {
+    const ids = new Set(S.clubFilter.members.map((m) => m.id));
+    const holds = (b) => (b.matches || []).some((m) => ids.has(m.aid) || ids.has(m.bid));
+    rest = rest.filter(holds);
+    const rows = S.clubFilter.members.map((m) => {
+      const nx = nextFor(data, m.id);
+      return '<div class="qrow"><span class="qwho">' + esc(m.name) + '</span>'
+        + (nx ? '<span class="qbout">Match ' + esc(nx.bout ?? '?') + ' · ' + matLabel(nx.mat) + '</span>' + statusPill(nx, data)
+          : '<span class="qstate">Done — no more matches.</span>') + '</div>';
+    }).join('');
+    clubBanner = '<div class="panel clubfilter"><div class="row"><h3 style="margin:0">Club: ' + esc(S.clubFilter.club) + '</h3>'
+      + '<button class="big" id="clubclear" style="margin-left:auto">Clear filter</button></div>' + rows + '</div>';
+  }
   const groups = {};
   for (const b of rest) {
     const age = parseDiv(b.division).age;
     (groups[age] = groups[age] || []).push(b);
   }
   let brackets = '<div class="panel"><div class="row"><h2 style="margin:0">Brackets</h2>'
-    + '<button class="big" id="brkrefresh" style="margin-left:auto">Refresh</button></div><div id="brkdetail"></div>'
-    + (isComplete ? '<p class="clear">' + icon('result') + ' Tournament complete — results are read-only.</p>' : '')
+    + '<button class="big" id="brkrefresh" style="margin-left:auto">Refresh</button>'
+    + '<button class="big" id="brkpacket">Print packet</button></div><div id="brkdetail"></div>'
+    + (isComplete ? emptyWrap('celebrate', 'Tournament complete', 'Every bracket is Final — results below are read-only.') : '')
     + '<div id="brklist">'
     + (pinned.length ? '<h3 class="pinhead">Pinned</h3>' + pinned.map((b) => bracketRow(b, true)).join('') : '')
     + Object.entries(groups).map(([age, arr]) => '<h3>' + esc(age) + '</h3>' + arr.map((b) => bracketRow(b, false)).join('')).join('')
-    + (blist.length ? '' : '<p>No brackets published yet.</p>') + '</div></div>';
+    + (blist.length ? '' : emptyWrap('brackets', 'No brackets published yet', 'Check-in is still open — brackets appear here once the organizer seeds and shares them.')) + '</div></div>';
   const paintOne = (id) => {
     const mount = v.querySelector('[data-mount="' + id + '"]');
     const b = blist.find((x) => x.id === id);
@@ -460,9 +651,17 @@ async function spectator() {
       sub: (data.date ? fmtDate(data.date) + ' · ' : '') + 'Tap Refresh for live results.',
       format: b.format, matches: b.matches,
     });
+    const link = document.createElement('div');
+    link.innerHTML = linkPanHTML(b);
+    mount.appendChild(link);
+    // Wires draw in on expand (CSS animation, instant under reduced motion).
+    mount.classList.add('draw');
+    setTimeout(() => mount.classList.remove('draw'), 320);
     const btn = v.querySelector('[data-expand="' + id + '"]');
     if (btn) { btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
     if (!S.expanded.includes(id)) S.expanded.push(id);
+    rememberScanned(id, b.division);
+    try { history.replaceState(null, '', bracketShortLink(id)); } catch { /* no history */ }
   };
   const foldOne = (id) => {
     const mount = v.querySelector('[data-mount="' + id + '"]');
@@ -477,12 +676,23 @@ async function spectator() {
       + '<div>' + esc(k.name) + ' · ' + (galMode === 'per' ? k.count : k.allTime) + ' kudos (' + (galMode === 'per' ? 'tournament' : 'all-time') + ')</div>'
       + '<button class="kudosbtn" data-k="' + k.id + '">Give Kudos</button></div>').join('') + '</div>';
   let gal = '<div class="panel"><h2>Sportsmanship Stars</h2><div id="galbody">' + galHtml() + '</div></div>';
-  v.innerHTML = brackets + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(data.bulletin) + '</div>' + gal;
+  v.innerHTML = clubBanner + brackets + '<div class="panel"><h2>' + icon('status') + ' Bulletin</h2>' + bulletinHTML(data.bulletin) + '</div>' + gal;
+  const clubclear = document.getElementById('clubclear');
+  if (clubclear) clubclear.onclick = () => { S.clubFilter = null; spectator(); };
   v.querySelectorAll('[data-expand]').forEach((btn) => btn.onclick = () => {
     const id = btn.dataset.expand;
     const mount = v.querySelector('[data-mount="' + id + '"]');
     if (mount && mount.hidden) paintOne(id);
     else foldOne(id);
+  });
+  v.querySelectorAll('[data-link]').forEach((btn) => btn.onclick = (e) => {
+    e.stopPropagation();
+    const id = btn.dataset.link;
+    const pan = v.querySelector('[data-linkpan="' + id + '"]');
+    const b = blist.find((x) => x.id === id);
+    if (!pan || !b) return;
+    if (pan.hidden) { pan.innerHTML = linkPanHTML(b); pan.hidden = false; }
+    else { pan.hidden = true; pan.innerHTML = ''; }
   });
   v.querySelectorAll('[data-pin]').forEach((btn) => btn.onclick = async (e) => {
     e.stopPropagation();
@@ -501,8 +711,20 @@ async function spectator() {
   });
   const brkrefresh = document.getElementById('brkrefresh');
   if (brkrefresh) brkrefresh.onclick = () => spectator();
+  const brkpacket = document.getElementById('brkpacket');
+  if (brkpacket) brkpacket.onclick = () => { window.open('/api/packet/' + tid, '_blank'); };
   if (window.Bracket) window.Bracket.setTapHandler((t) => openMatchDetail(data, t.mid));
   for (const id of [...S.expanded]) paintOne(id);
+  // Bracket short links (#b=<id>) open that bracket's public view directly.
+  if (!S.afterSpectator) {
+    const hm = String(location.hash || '').match(/^#b=(.+)$/);
+    if (hm) {
+      const id = decodeURIComponent(hm[1]);
+      if (blist.some((b) => b.id === id) && !S.expanded.includes(id)) {
+        S.afterSpectator = { expand: id, match: null };
+      }
+    }
+  }
   if (S.afterSpectator) {
     const nav = S.afterSpectator;
     S.afterSpectator = null;
@@ -569,6 +791,32 @@ async function organizer() {
   document.getElementById('tsettings').onclick = () => setupEditor(curTid(), 'orgbody', () => organizer());
 }
 
+// Sign-in log: name/ID, mat (table), sign-in/out times, shift, handoff. The
+// same panel renders in the Table Worker view and the Organizer Table view.
+async function renderTableLog(mountId, tid, table, name) {
+  const mount = document.getElementById(mountId);
+  if (!mount) return;
+  let log = [];
+  try { log = (await api('/table/' + tid + '/log')).log || []; }
+  catch { mount.innerHTML = '<div class="panel"><p>Sign-in log unavailable offline.</p></div>'; return; }
+  const fmtT = (iso) => { if (!iso) return 'not yet'; try { return new Date(iso).toLocaleTimeString(); } catch { return iso; } };
+  const rows = log.map((t) => '<h3>Table ' + esc(t.table) + '</h3>' + (t.workers.length ? t.workers.map((w) =>
+    '<div class="qrow"><span class="qwho">' + esc(w.name) + ' (' + esc(w.role) + ')</span>'
+    + '<span class="qstate">in ' + esc(fmtT(w.in)) + (w.out ? ' · out ' + esc(fmtT(w.out)) : ' · ' + esc(w.shift))
+    + (w.handoff ? ' · handoff to ' + esc(w.handoff) : '') + '</span></div>').join('') : '<p>No crew clocked in.</p>')).join('')
+    || '<p>No tables have clocked in yet.</p>';
+  mount.innerHTML = '<div class="panel"><h2>Sign-in log</h2>' + rows
+    + (name ? '<div class="row"><button class="big" id="tlogsignout">Sign out ' + esc(name) + '</button></div><div id="tlogmsg"></div>' : '') + '</div>';
+  const so = document.getElementById('tlogsignout');
+  if (so) so.onclick = async () => {
+    try {
+      const r = await api('/table/clockout', { method: 'POST', body: { tournamentId: tid, table: table || '1', name } });
+      document.getElementById('tlogmsg').innerHTML = '<p class="clear">Signed out.' + (r.promoted ? ' Handoff to ' + esc(r.promoted.name) + '.' : '') + '</p>';
+      renderTableLog(mountId, tid, table, null);
+    } catch (e) { document.getElementById('tlogmsg').innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
+  };
+}
+
 async function tableMode() {
   const body = document.getElementById('orgbody');
   const tid = S.tournamentId || 'demo-tournament';
@@ -577,30 +825,36 @@ async function tableMode() {
   catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
   let q;
   try { q = await api('/table/' + tid + '/queue?table=1'); } catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
-  if (!q.queue.length) { body.innerHTML = '<div class="panel"><p>No bouts assigned to table 1.</p></div>'; return; }
+  if (!q.queue.length) {
+    body.innerHTML = '<div class="panel"><p>No matches assigned to table 1.</p></div><div id="tlog"></div>';
+    renderTableLog('tlog', tid, '1', name);
+    return;
+  }
   const m = q.queue[0];
-  body.innerHTML = '<div class="panel"><h3>Table 1 · Bout ' + esc(m.bout_number ?? '?') + '</h3>'
-    + '<p>' + esc(m.a) + ' (RED) vs ' + esc(m.b) + ' (GREEN)</p>'
+  body.innerHTML = '<div class="panel"><h3>Table 1 · Match ' + esc(m.bout_number ?? '?') + '</h3>'
+    + '<p>' + esc(tbdName(m.a)) + ' (RED) vs ' + esc(tbdName(m.b)) + ' (GREEN)</p>'
     + (m.hold ? '<p class="held">' + esc(m.hold) + '</p>' : '')
     + '<table class="scores"><tr><th>RED</th><th>GREEN</th></tr><tr>'
     + '<td><button class="scorebtn red" data-s="red" data-p="1">+1</button> <button class="scorebtn red" data-s="red" data-p="2">+2</button> <button class="scorebtn red" data-s="red" data-p="3">+3</button></td>'
     + '<td><button class="scorebtn green" data-s="green" data-p="1">+1</button> <button class="scorebtn green" data-s="green" data-p="2">+2</button> <button class="scorebtn green" data-s="green" data-p="3">+3</button></td>'
     + '</tr></table><p>Score: <span id="live">0 – 0</span></p>'
-    + '<div class="row"><button class="big" id="undo">UNDO</button><button class="big primary" id="final">Finalize</button></div></div>'
+    + '<div class="row"><button class="big" id="undo">Undo last point</button><button class="big primary" id="final">Finalize</button></div></div>'
     + '<div class="panel"><h3>Clocks</h3><div class="row"><div><label>Match (sec)</label><input id="ckc" type="number" min="0"></div>'
     + '<div><label>Blood (sec)</label><input id="ckb" type="number" min="0"></div>'
     + '<div><label>Injury (sec)</label><input id="cki" type="number" min="0"></div></div>'
-    + '<div class="row"><button class="big" id="ckgo">Save clocks</button></div><p id="ckmsg" class="hint">Blood and injury time never add to the match clock.</p></div>';
+    + '<div class="row"><button class="big" id="ckgo">Save clocks</button></div><p id="ckmsg" class="hint">Blood and injury time never add to the match clock.</p></div>'
+    + '<div id="tlog"></div>';
+  renderTableLog('tlog', tid, '1', name);
   body.querySelectorAll('.scorebtn').forEach((b) => b.onclick = async () => {
     const side = b.dataset.s, pts = Number(b.dataset.p);
     const live = await api('/table/score', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id, play: { side, points: pts, label: side + ' +' + pts } } });
     document.getElementById('live').textContent = live.red + ' – ' + live.green;
-    document.getElementById('undo').textContent = 'UNDO: take back ' + side + ' +' + pts;
+    document.getElementById('undo').textContent = 'Undo last point: take back ' + side + ' +' + pts;
   });
   document.getElementById('undo').onclick = async () => {
     const r = await api('/table/undo', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id } });
     document.getElementById('live').textContent = r.live.red + ' – ' + r.live.green;
-    document.getElementById('undo').textContent = 'Took back ' + r.undone.side + ' +' + r.undone.points + ' — UNDO';
+    document.getElementById('undo').textContent = 'Took back ' + r.undone.side + ' +' + r.undone.points + ' — Undo last point';
   };
   document.getElementById('ckgo').onclick = async () => {
     const num = (id) => { const raw = document.getElementById(id).value.trim(); if (raw === '') return null; const n = Number(raw); return Number.isFinite(n) && n >= 0 ? n : null; };
@@ -617,7 +871,7 @@ async function tableMode() {
     const outcome = prompt('Outcome (pin/tech-fall/major/decision):', 'decision');
     try {
       await api('/table/finalize', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id, winner, outcome } });
-      alert('Bout finalized.');
+      alert('Match finalized.');
     } catch (e) { alert(e.message); }
   };
 }
@@ -636,7 +890,7 @@ function setupFormHTML(o) {
       : '<label>Rules</label><select id="su-preset">' + PRESET_OPTIONS.map(([id, label]) =>
         '<option value="' + id + '">' + esc(label) + ' (DRAFT)</option>').join('') + '</select>'
         + '<p class="hint">All rule sets ship as DRAFT — verify against the official book.</p>')
-    + '<label>Rest between bouts</label>' + pills('su-rest', 'rest', REST_OPTIONS, o.rest ?? 20, Object.fromEntries(REST_OPTIONS.map((r) => [r, r + ' min'])))
+    + '<label>Rest between matches</label>' + pills('su-rest', 'rest', REST_OPTIONS, o.rest ?? 20, Object.fromEntries(REST_OPTIONS.map((r) => [r, r + ' min'])))
     + '<label>Bracket format</label>' + pills('su-format', 'format', FORMAT_OPTIONS.map(([id]) => id), info.defaultFormat || 'double-elim', FORMAT_LABELS)
     + '<div class="split"><div><label>Date</label><input id="su-date" type="date" value="' + val('date') + '"></div>'
     + '<div><label>Start time</label><input id="su-start" type="text" placeholder="9:00 AM" value="' + val('startTime') + '"></div></div>'
@@ -773,10 +1027,10 @@ function matQueuesHTML(brackets, floorMin) {
       const state = (m.live || m.status === 'in-progress')
         ? '<span class="qstate live">' + icon('status') + ' Live</span>'
         : held ? '<span class="qstate heldq">' + icon('rest') + ' Held — ' + esc(held.name) + ' rested ' + held.rested + ' of ' + floorMin + ' min</span>'
-        : m === pend[0] ? '<span class="qstate ondeck">On deck</span>'
-        : m === pend[1] ? '<span class="qstate">In the hole</span>'
-        : '<span class="qstate">Upcoming</span>';
-      return '<div class="qrow"><span class="qbout">Match ' + esc(m.bout ?? '?') + '</span><span class="qwho">' + esc(m.a) + ' v ' + esc(m.b) + '</span>' + state + '</div>';
+        : m === pend[0] ? '<span class="qstate ondeck">' + icon('ondeck') + ' On deck</span>'
+        : m === pend[1] ? '<span class="qstate">' + icon('hole') + ' In the hole</span>'
+        : '<span class="qstate">' + icon('clock') + ' Upcoming</span>';
+      return '<div class="qrow"><span class="qbout">Match ' + esc(m.bout ?? '?') + '</span><span class="qwho">' + esc(tbdName(m.a)) + ' v ' + esc(tbdName(m.b)) + '</span>' + state + '</div>';
     }).join('');
     return '<h3>' + icon('mat') + ' Mat ' + esc(mapMat(mat)) + (now ? ' · Now: Match ' + esc(now.now) : '') + '</h3>' + rows;
   }).join('') + '</div>';
@@ -796,13 +1050,25 @@ function openMatchDetail(board, mid) {
   const all = board.brackets.flatMap((x) => x.matches || []);
   const now = m.mat != null ? matNow(all, m.mat) : null;
   const kidIn = S.wrestlerId && (m.aid === S.wrestlerId || m.bid === S.wrestlerId);
-  const est = kidIn && m.bout != null && now
-    ? { mat: mapMat(m.mat), now: now.now, yours: m.bout, away: m.bout - now.now } : null;
+  // Next-match truth: a completed bout is Final only — never "Your next".
+  // When the selected wrestler is in this bout, the strip shows THEIR actual
+  // next bout (the same match the hero shows), or Done when none is left.
+  let strip = '';
+  if (kidIn) {
+    const actual = nextFor(board, S.wrestlerId);
+    if (actual && actual.mat != null && actual.bout != null) {
+      const aNow = matNow(all, actual.mat);
+      strip = aNow ? estStrip({ mat: mapMat(actual.mat), now: aNow.now, yours: actual.bout, away: actual.bout - aNow.now })
+        : '<div class="eststrip">' + icon('mat') + ' Your next: Match ' + esc(actual.bout) + ' · ' + matLabel(actual.mat) + '</div>';
+    } else {
+      strip = '<div class="eststrip">' + icon('result') + ' Done — no more matches.</div>';
+    }
+  }
+  if (!strip && now) strip = '<div class="eststrip">' + icon('mat') + ' Mat ' + esc(mapMat(m.mat)) + ' · Now: Match ' + esc(now.now) + '</div>';
   mount.innerHTML = '<div class="panel matchdetail"><div class="row"><h3 style="margin:0">' + icon('status') + ' Match detail · ' + esc(b.division) + '</h3>'
     + '<button class="big" id="mdclose" style="margin-left:auto">Close</button></div>'
     + matchupHTML(m, board)
-    + (est ? estStrip(est)
-      : now ? '<div class="eststrip">' + icon('mat') + ' Mat ' + esc(mapMat(m.mat)) + ' · Now: Match ' + esc(now.now) + '</div>' : '')
+    + strip
     + '</div>';
   document.getElementById('mdclose').onclick = () => { mount.innerHTML = ''; };
   mount.scrollIntoView({ block: 'nearest' });
@@ -831,7 +1097,7 @@ async function tournament() {
     + infoRow('Status', info.status) + infoRow('Type', d.type) + infoRow('Venue', info.venue)
     + infoRow('Date', fmtDate(d.date)) + infoRow('Starts', d.startTime) + infoRow('Doors', d.doorsTime)
     + infoRow('Rules', info.rules.presetId + ' (' + info.rules.presetStatus + ')')
-    + infoRow('Rest between bouts', info.rules.restFloorMin + ' min')
+    + infoRow('Rest between matches', info.rules.restFloorMin + ' min')
     + infoRow('Bracket format', FORMAT_LABELS[d.defaultFormat] || d.defaultFormat)
     + infoRow('Entry fee', d.fee) + infoRow('Registration', d.regDetails)
     + infoRow('Tables', d.tables) + infoRow('Referees', d.referees) + infoRow('Head referee', d.headRef)
@@ -847,18 +1113,24 @@ async function tournament() {
       + statCell('Decisions', stats.decisions) + statCell('Mats', stats.mats)
       + statCell('Schools', stats.schools) + statCell('Unattached', stats.unattached)
       + statCell('Wrestlers', stats.wrestlers) + statCell('Points scored', stats.points)
-      + statCell('Fastest pin', stats.fastestPin ? esc(stats.fastestPin.name + ' · ' + fmtDur(stats.fastestPin.sec)) : '—')
+      + statCell('Fastest pin', stats.fastestPin ? esc(stats.fastestPin.name + ' · ' + fmtDur(stats.fastestPin.sec)) : 'No pins yet')
       + '</div>' + infoRow('Schools here', (stats.schoolList || []).join(', ')) + '</div>';
   } else {
-    html += '<div class="panel"><h2>' + icon('result') + ' Day stats</h2><p>Stats unavailable offline.</p></div>';
+    html += '<div class="panel"><h2>' + icon('result') + ' Day stats</h2><p>Stats unavailable offline — placeholders until you reconnect.</p><div class="statgrid">'
+      + ['Matches wrestled', 'Mat time', 'Pins', 'Tech falls', 'Majors', 'Decisions', 'Mats', 'Wrestlers'].map((l) => statCell(l + ' (placeholder)', '…')).join('') + '</div></div>';
   }
   if (board) html += matQueuesHTML(board.brackets, (info.rules && info.rules.restFloorMin) || 20);
   if (canEdit) html += '<div class="panel"><div class="row"><button class="big primary" id="hubedit">Edit tournament settings</button></div></div>';
+  // Parent print control: the same organizer packet renderer, one tap away.
+  html += '<div class="panel"><div class="row"><button class="big" id="hubpacket">Print packet</button></div>'
+    + '<p class="hint">Brackets, bulletin, and mat run-order — the same packet the organizer prints.</p></div>';
   html += '<div id="hubbody"></div>';
   v.innerHTML = html;
   v.querySelectorAll('#hubpicks [data-t]').forEach((b) => b.onclick = () => { saveTid(b.dataset.t); tournament(); });
   const ed = document.getElementById('hubedit');
   if (ed) ed.onclick = () => setupEditor(t, 'hubbody', () => tournament());
+  const hp = document.getElementById('hubpacket');
+  if (hp) hp.onclick = () => { window.open('/api/packet/' + t, '_blank'); };
 }
 
 /* ---------------- Notes: household notes + coach feedback per wrestler ---------------- */
@@ -882,7 +1154,7 @@ async function notesView() {
   let mine = [];
   try { mine = (await api('/me/wrestlers')).wrestlers || []; } catch { /* offline */ }
   if (!mine.length) {
-    v.innerHTML = '<div class="panel"><h2>Notes</h2><p>No wrestlers are linked to this account yet.</p></div>';
+    v.innerHTML = '<div class="panel"><h2>Notes</h2>' + emptyWrap('notes', 'No wrestlers linked yet', 'Ask the organizer to link a wrestler to this account, or continue as the demo parent to explore.') + '</div>';
     return;
   }
   let html = '';
@@ -895,7 +1167,7 @@ async function notesView() {
       + (coach.length ? '<h3>From the coach</h3>' + coach.map((n) => '<p>' + esc(n.body) + '</p>').join('') : '')
       + '<h3>Notes</h3>' + (rest.length
         ? rest.map((n) => '<p>' + esc(n.body) + ' <span class="sheetsub">· ' + esc(n.scope) + '</span></p>').join('')
-        : '<p>No notes yet.</p>')
+        : '<p>No notes yet — notes you save for this wrestler show here.</p>')
       + '<label>Add a note</label><textarea id="note-' + w.id + '" rows="2"></textarea>'
       + '<div class="row"><button class="big primary" data-note="' + w.id + '">Save note</button></div></div>';
   }
@@ -903,7 +1175,9 @@ async function notesView() {
     html += '<div class="panel"><h2>Family sharing</h2>'
       + '<label>Share a wrestler with family</label><div class="row"><select id="sharewho">'
       + mine.map((w) => '<option value="' + w.id + '">' + esc(w.name) + '</option>').join('') + '</select>'
-      + '<button class="big" id="sharego">Create invite</button></div><div id="sharemsg"></div>'
+      + '<button class="big" id="sharego">Create invite</button></div>'
+      + '<p class="hint" id="sharewhat">After you tap Create invite, this panel shows a scan code (QR) plus a short manual code for the same invite, its expiry, and Copy / Revoke controls. No passwords are ever shared.</p>'
+      + '<div id="sharemsg"></div>'
       + '<label>Accept a family invite</label><div class="row"><input id="accepttok" type="text" placeholder="Invite code">'
       + '<button class="big" id="acceptgo">Accept</button></div><div id="acceptmsg"></div></div>';
   }
@@ -913,7 +1187,28 @@ async function notesView() {
     const msg = document.getElementById('sharemsg');
     try {
       const inv = await api('/sharing/invite', { method: 'POST', body: { wrestlerId: document.getElementById('sharewho').value } });
-      msg.innerHTML = '<p>Invite code: <b>' + esc(inv.token) + '</b> (expires ' + esc(inv.expires_at) + '). The other guardian enters it under Accept.</p>';
+      const when = (() => { try { return new Date(inv.expires_at).toLocaleString(); } catch { return inv.expires_at; } })();
+      msg.innerHTML = '<div class="sheetlink">' + qrSvg('arena:invite:' + inv.token, 112)
+        + '<div><p style="margin:0">Manual code: <b class="bigcode">' + esc(inv.code) + '</b></p>'
+        + '<p style="margin:0">Expires: ' + esc(when) + '</p>'
+        + '<p class="hint" style="margin:0">The other guardian scans the code or types the manual code under Accept. Either one grants the same invite; no passwords are shared.</p></div></div>'
+        + '<div class="row"><button class="big" id="sharecopy">Copy code</button>'
+        + '<button class="big" id="sharerevoke">Revoke</button></div><div id="sharestat"></div>';
+      const stat = document.getElementById('sharestat');
+      document.getElementById('sharecopy').onclick = async () => {
+        const text = 'Arena family invite code: ' + inv.code + ' (expires ' + when + ')';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+          else throw new Error('no clipboard');
+          stat.innerHTML = '<p class="clear">Copied.</p>';
+        } catch { stat.innerHTML = '<p>Copy this: <b>' + esc(inv.code) + '</b></p>'; }
+      };
+      document.getElementById('sharerevoke').onclick = async () => {
+        try {
+          await api('/sharing/revoke', { method: 'POST', body: { token: inv.token } });
+          stat.innerHTML = '<p class="clear">Revoked — the scan code and manual code no longer work.</p>';
+        } catch (e) { stat.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
+      };
     } catch (e) { msg.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
   };
   const acceptgo = document.getElementById('acceptgo');
@@ -956,17 +1251,28 @@ async function tableView() {
   v.innerHTML = '<div class="panel"><h2>Table</h2><p>Signed in as ' + esc(S.account.name) + ' (' + esc(S.account.role) + ')</p>'
     + '<label>Tournament</label><div class="chipline" id="tablepicks">' + list.map((t) =>
       '<button class="chip' + (t.id === S.tournamentId ? ' on' : '') + '" data-t="' + t.id + '">' + esc(t.name) + '</button>').join('')
-    + '</div><div class="row"><button class="big primary" id="ttable2">Open scoreboard</button></div></div><div id="orgbody"></div>';
+    + '</div><div class="row"><button class="big primary" id="ttable2">Open scoreboard</button></div></div><div id="tlog"></div><div id="orgbody"></div>';
   v.querySelectorAll('#tablepicks [data-t]').forEach((b) => b.onclick = () => { saveTid(b.dataset.t); tableView(); });
   document.getElementById('ttable2').onclick = () => tableMode();
+  renderTableLog('tlog', S.tournamentId || 'demo-tournament', '1', null);
 }
 
 /* ---------------- Bracket Generator (same engine, same print) ---------------- */
 async function guest() {
   const v = document.getElementById('view');
   let gseed = 'entered', glayout = 'compact';
-  v.innerHTML = '<div class="panel noprint"><h2>Bracket Generator</h2><p>Free, no account. Same deterministic engine and same print renderer as tournament brackets.</p>'
+  const scanned = scannedBrackets();
+  const scanHtml = '<div class="panel"><h2>Viewable Brackets</h2>'
+    + '<p class="hint">Brackets scanned or opened on this device accumulate here. Opening one shows its public view only.</p>'
+    + (scanned.length
+      ? scanned.map((s) => '<div class="row"><button class="big" data-scan="' + esc(s.id) + '">' + esc(s.division || s.id) + '</button></div>').join('')
+      : emptyWrap('scanned', 'No viewable brackets yet', 'Open any bracket sheet — or paste its link below — and it lands here for quick viewing.'))
+    + '<label>Add a bracket link</label><div class="row"><input id="scanadd" type="text" placeholder="#b=bracket-id">'
+    + '<button class="big" id="scanaddgo">Add</button></div><div id="scanmsg"></div></div>';
+  v.innerHTML = scanHtml
+    + '<div class="panel noprint"><h2>Bracket Generator</h2><p>Free, no account. Same deterministic engine and same print renderer as tournament brackets.</p>'
     + '<label>Print title (tournament name)</label><input id="gtitle" type="text" value="Bracket Generator">'
+    + '<label>Event date</label><input id="gdate" type="date" value="">'
     + '<label>Names (one per line)</label><textarea id="gnames" rows="8">Avery\nBlake\nCasey\nDevon\nEmery\nFinley</textarea>'
     + '<label>Seeding</label><div class="chipline" id="gseed">'
     + '<button class="chip on" data-seed="entered">As entered</button>'
@@ -998,15 +1304,29 @@ async function guest() {
     gout.innerHTML = '<div class="bracket-sheet" id="guestsheet"></div>'
       + '<div class="row noprint"><button class="big primary" id="gprint">Print bracket</button></div>';
     const title = document.getElementById('gtitle').value.trim() || 'Bracket Generator';
+    const gdate = document.getElementById('gdate').value;
     window.Bracket.renderSheet(document.getElementById('guestsheet'), {
       title,
-      sub: new Date().toLocaleDateString() + ' · ' + names.length + ' wrestlers · ' + out.matches.length + ' bouts — fill in scores by hand',
+      sub: (gdate ? fmtDate(gdate) : new Date().toLocaleDateString()) + ' · ' + names.length + ' wrestlers · ' + out.matches.length + ' matches — fill in scores by hand',
       format: out.format, matches: out.matches,
     });
     document.getElementById('gprint').onclick = () => {
       document.body.classList.add('printing-bracket');
       window.print();
     };
+  };
+  v.querySelectorAll('[data-scan]').forEach((b) => b.onclick = () => {
+    try { location.hash = bracketShortLink(b.dataset.scan); } catch { /* no history */ }
+    S.afterSpectator = { expand: b.dataset.scan, match: null };
+    setMode('spectator');
+  });
+  document.getElementById('scanaddgo').onclick = () => {
+    const raw = document.getElementById('scanadd').value.trim();
+    const msg = document.getElementById('scanmsg');
+    const m = raw.match(/#b=([A-Za-z0-9_-]+)/) || raw.match(/^([A-Za-z0-9_-]{2,64})$/);
+    if (!m) { msg.innerHTML = '<p class="held">Paste a bracket link like #b=bracket-id.</p>'; return; }
+    rememberScanned(decodeURIComponent(m[1]), decodeURIComponent(m[1]));
+    guest();
   };
 }
 
@@ -1029,8 +1349,8 @@ async function about() {
   modal.innerHTML = '<div class="modalcard" role="dialog" aria-modal="true" aria-label="About">'
     + '<h2>Architecture / About</h2>'
     + '<p><span class="pill ' + (live ? 'p-done' : 'p-todo') + '">' + (live ? 'LIVE — real Meta API' : 'MOCK — development fallback') + '</span></p>'
-    + infoRow('Provider flag', st.flag || '—')
-    + infoRow('Models', st.models ? Object.values(st.models).join(', ') : '—')
+    + infoRow('Provider flag', st.flag || 'not configured')
+    + infoRow('Models', st.models ? Object.values(st.models).join(', ') : 'model defaults')
     + '<p>' + esc(st.note || '') + '</p>'
     + '<p>' + esc(srcline) + '</p>'
     + '<p>Card art: generated image, uploaded photo, or a labeled SAMPLE ART placeholder — check the ribbon on each card.</p>'
@@ -1052,11 +1372,17 @@ function tabsFor() { return S.session === 'guest' ? GUEST_TABS : (ROLE_TABS[S.ro
 function menuKey() { return S.session === 'guest' ? 'guest' : (S.role || 'parent'); }
 function paintSession() {
   const chip = document.getElementById('sessionchip');
-  const label = S.session === 'guest' ? 'Guest' : S.session === 'demo' ? 'DEMO'
-    : S.role === 'organizer' ? 'Organizer' : S.role === 'table' ? 'Table Worker'
-    : S.account ? S.account.name : 'Parent';
-  chip.hidden = !label;
-  chip.textContent = label;
+  if (!S.session && !S.account) {
+    // Signed out: no role pill at all (fresh-load state, never a stale name).
+    chip.hidden = true;
+    chip.textContent = '';
+  } else {
+    const label = S.session === 'guest' ? 'Guest' : S.session === 'demo' ? 'DEMO'
+      : S.role === 'organizer' ? 'Organizer' : S.role === 'table' ? 'Table Worker'
+      : S.account ? S.account.name : 'Parent';
+    chip.hidden = !label;
+    chip.textContent = label;
+  }
   paintDemoTag();
   const key = menuKey();
   document.querySelectorAll('#menupanel button[data-min]').forEach((b) => {
@@ -1072,6 +1398,13 @@ function setMode(mode) {
   document.getElementById('menupanel').hidden = true;
   document.getElementById('menubtn').setAttribute('aria-expanded', 'false');
   paintSession();
+  // Shimmer skeleton + a sub-300ms settle on every switch; the view replaces
+  // the skeleton as soon as its data lands, so text never waits on motion.
+  const skel = document.getElementById('view');
+  skel.innerHTML = viewSkeleton(mode);
+  skel.classList.remove('viewswap');
+  void skel.offsetWidth;
+  skel.classList.add('viewswap');
   ({ landing, wrestler: myWrestler, spectator, tournament, notes: notesView, organizer, table: tableView, guest, studio: () => window.Studio?.open() })[mode]();
 }
 function guestBlocked(mode) {
@@ -1091,9 +1424,13 @@ function tableBlocked(mode) {
     + '<div class="row"><button class="big primary" id="tbback">Back to Table</button></div></div>';
   document.getElementById('tbback').onclick = () => setMode('table');
 }
-function applyRole() {
+function paintTabs() {
   const tabs = tabsFor();
   document.querySelectorAll('.modemenu button[data-mode]').forEach((b) => { b.hidden = !tabs.includes(b.dataset.mode); });
+}
+function applyRole() {
+  paintTabs();
+  const tabs = tabsFor();
   if (!tabs.includes(S.mode) && !['studio', 'guest'].includes(S.mode)) setMode(tabs[0]);
   else setMode(S.mode === 'landing' ? tabs[0] : S.mode);
 }
@@ -1128,7 +1465,7 @@ async function bootSession() {
 function landing() {
   const v = document.getElementById('view');
   const demoNote = 'Demo session role for demo purposes only — this repo has no real authentication backend.';
-  v.innerHTML = '<div class="panel landhero"><h2>Folkstyle Arena</h2><p>Tournament day: wrestlers, brackets, mats, and cards.</p></div>'
+  v.innerHTML = '<div class="panel landhero"><div class="landmark">' + LOGO_MARK + '</div><h2 class="heroname">Folkstyle Arena</h2><div class="emptywrap">' + ILLUS.hero + '</div><p>Tournament day: wrestlers, brackets, mats, and cards.</p></div>'
     + '<div class="panel"><button class="big primary landbtn" id="landemo">Continue as Demo</button>'
     + '<p class="hint">The full demo tournament. Clearly labeled DEMO DATA on every page.</p></div>'
     + '<div class="panel"><button class="big landbtn" id="lanparent">Parent sign-in</button>'
@@ -1155,13 +1492,21 @@ document.getElementById('menubtn').onclick = () => {
 document.getElementById('aboutbtn').onclick = about;
 document.getElementById('aboutbtn2').onclick = about;
 document.getElementById('switchsession').onclick = () => {
+  // Sign out clears ALL session state at the root: identity, grant, selected
+  // wrestler, cached authed responses, and UI expansion — then restores the
+  // fresh-load landing (no pill, all tabs, landing view). The server grant is
+  // dropped best-effort so offline sign-out still works.
+  const grant = S.token;
   S.session = null; saveSession();
   S.token = null; S.account = null; S.role = 'parent';
+  S.wrestlerId = null; S.cache = {}; S.expanded = []; S.afterSpectator = null; S.clubFilter = null;
   try { localStorage.setItem('fa-role', 'parent'); } catch { /* private mode */ }
+  if (grant) fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + grant } }).catch(() => {});
+  document.querySelectorAll('.modemenu button[data-mode]').forEach((b) => { b.hidden = false; });
   setMode('landing');
 };
-document.getElementById('search').addEventListener('change', async (e) => {
-  const q = e.target.value.trim();
+async function runSearch(q) {
+  q = String(q || '').trim();
   const box = document.getElementById('searchresults');
   if (!q) { box.hidden = true; box.innerHTML = ''; return; }
   box.hidden = false;
@@ -1172,12 +1517,16 @@ document.getElementById('search').addEventListener('change', async (e) => {
     // Table logins never open parent profiles; organizer logins never open
     // parent profiles or private notes either (their view is setup/results).
     // The server additionally withholds private notes from table and guests.
+    // Withheld rows are always LABELED, never silently dropped to empty.
     let withheld = '';
-    const hideKinds = S.session !== 'guest' && S.role === 'table' ? ['wrestler']
-      : S.session !== 'guest' && S.role === 'organizer' ? ['wrestler', 'note'] : [];
+    const isTable = S.session !== 'guest' && S.role === 'table';
+    const isOrg = S.session !== 'guest' && S.role === 'organizer';
+    const hideKinds = isTable ? ['wrestler'] : isOrg ? ['wrestler', 'note'] : [];
     if (hideKinds.length && res.some((x) => hideKinds.includes(x.kind))) {
       res = res.filter((x) => !hideKinds.includes(x.kind));
-      withheld = '<p class="hint">Wrestler profiles and private notes stay in the parent login — hidden here.</p>';
+      withheld = isTable
+        ? '<p class="hint">Wrestler profiles are hidden for Table Worker logins — assigned mats and matches only.</p>'
+        : '<p class="hint">Wrestler profiles and private notes stay in the parent login — hidden here.</p>';
     }
     if (!res.length) { box.innerHTML = '<div class="panel"><p>No matches for “' + esc(q) + '”.</p>' + withheld + '</div>'; return; }
     box.innerHTML = '<div class="panel"><h3>Results</h3>' + withheld + res.map((x, i) =>
@@ -1188,10 +1537,20 @@ document.getElementById('search').addEventListener('change', async (e) => {
       if (x.kind === 'wrestler' && x.id) { S.wrestlerId = x.id; setMode('wrestler'); }
       else if (x.kind === 'bracket' && x.id) { S.afterSpectator = { expand: x.id, match: null }; setMode('spectator'); }
       else if (x.kind === 'bout' && x.bracketId) { S.afterSpectator = { expand: x.bracketId, match: x.id }; setMode('spectator'); }
-      else if (x.kind === 'club') { setMode('spectator'); }
+      else if (x.kind === 'club') { S.clubFilter = { club: x.id, members: x.members || [] }; setMode('spectator'); }
       else if (x.kind === 'note') { setMode('notes'); }
     });
   } catch (err) { box.innerHTML = '<div class="panel"><p>' + esc(err.message) + '</p></div>'; }
+}
+// Results as-you-type (debounced), plus Enter/change for keyboards.
+let searchTimer = null;
+document.getElementById('search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch(e.target.value), 220);
+});
+document.getElementById('search').addEventListener('change', (e) => {
+  clearTimeout(searchTimer);
+  runSearch(e.target.value);
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -1200,4 +1559,13 @@ document.addEventListener('keydown', (e) => {
   document.getElementById('searchresults').hidden = true;
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+document.getElementById('set-rm').addEventListener('change', (e) => {
+  if (!S.settings) loadSettings();
+  S.settings.reduceMotion = e.target.checked; saveSettings(); applySettings();
+});
+document.getElementById('set-hc').addEventListener('change', (e) => {
+  if (!S.settings) loadSettings();
+  S.settings.highContrast = e.target.checked; saveSettings(); applySettings();
+});
+applySettings();
 bootSession();

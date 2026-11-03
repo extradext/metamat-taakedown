@@ -480,7 +480,7 @@ function breakByDiff(g, table, sumVs) {
 
 // ---------- rest gate (measured from match END, floor from config) ----------
 export function restStatus({ lastBoutEndIso, nowIso, restFloorMin }) {
-  if (!lastBoutEndIso) return { state: 'clear', restedMin: Infinity, needsMin: 0, message: 'No bouts yet today — clear to wrestle.' };
+  if (!lastBoutEndIso) return { state: 'clear', restedMin: Infinity, needsMin: 0, message: 'No matches yet today — clear to wrestle.' };
   const restedMin = Math.floor((new Date(nowIso) - new Date(lastBoutEndIso)) / 60000);
   if (restedMin >= restFloorMin) {
     return { state: 'clear', restedMin, needsMin: 0, message: `Rested ${restedMin} min (needs ${restFloorMin}) — clear.` };

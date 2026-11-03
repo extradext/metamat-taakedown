@@ -3,34 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0e1116">
+<meta name="theme-color" content="#0b1220">
 <title>Folkstyle Arena — Tournament Day</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 </head>
 <body>
 <header class="topbar">
   <div class="toprow">
-    <div class="brand">Folkstyle Arena <span class="demo-tag">DEMO DATA</span> <span class="sessionchip" id="sessionchip" hidden></span></div>
+    <div class="brand"><svg class="brandmark" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#0b1220" stroke="#d8a93c" stroke-width="3"/><path d="M24 10 L36 14 V24 C36 32 30 37 24 39 C18 37 12 32 12 24 V14 Z" fill="none" stroke="#d8a93c" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="23" r="5" fill="none" stroke="#f5f7fa" stroke-width="2.5"/></svg><span class="wordmark">Folkstyle Arena</span> <span class="demo-tag">DEMO DATA</span> <span class="sessionchip" id="sessionchip" hidden></span></div>
     <div class="menuwrap">
-      <button id="menubtn" aria-haspopup="true" aria-expanded="false">Menu</button>
+      <button id="menubtn" aria-haspopup="true" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg> <span>Menu</span></button>
       <div id="menupanel" hidden>
-        <button data-mode="studio" data-min="parent">Card Studio</button>
-        <button data-mode="guest" data-min="parent,organizer,guest">Bracket Generator</button>
-        <label class="menuitem navsearch" for="search">Search</label>
-        <button id="aboutbtn2">Architecture / About</button>
-        <button id="switchsession">Sign out</button>
+        <button data-mode="studio" data-min="parent"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="12" cy="12" r="4"/></svg> <span>Card Studio</span></button>
+        <button data-mode="guest" data-min="parent,organizer,guest"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8.5v7M8.5 12h7"/></svg> <span>Bracket Generator</span></button>
+        <label class="menuitem navsearch" for="search"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg> <span>Search</span></label>
+        <label class="menuitem"><input type="checkbox" id="set-rm"> <span>Reduce motion</span></label>
+        <label class="menuitem"><input type="checkbox" id="set-hc"> <span>High contrast</span></label>
+        <button id="aboutbtn2"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 10.5V17M12 7.2v.4"/></svg> <span>Architecture / About</span></button>
+        <button id="switchsession"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5v16h4M15 8l4 4-4 4M19 12H9"/></svg> <span>Sign out</span></button>
       </div>
     </div>
   </div>
 </header>
 <nav class="modemenu" aria-label="Mode">
-  <button data-mode="wrestler" class="on">My Wrestler</button>
-  <button data-mode="spectator">Brackets</button>
-  <button data-mode="tournament">Tournament</button>
-  <button data-mode="notes">Notes</button>
-  <button data-mode="organizer">Organizer</button>
-  <button data-mode="table">Table</button>
-  <button data-mode="guest">Bracket Generator</button>
+  <button data-mode="wrestler" class="on"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c.8-3.8 3.8-5.5 7.5-5.5s6.7 1.7 7.5 5.5"/></svg> <span class="navlabel">My Wrestler</span></button>
+  <button data-mode="spectator"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M9.5 4v16M3.5 12h6"/></svg> <span class="navlabel">Brackets</span></button>
+  <button data-mode="tournament"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v4.5a5 5 0 0 1-10 0z"/><path d="M7 5.5H4.5a2.5 2.5 0 0 0 2.7 4.5M17 5.5h2.5a2.5 2.5 0 0 1-2.7 4.5M12 13.5V17M8.5 20.5h7"/></svg> <span class="navlabel">Tournament</span></button>
+  <button data-mode="notes"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14v11.5H9.5L5 20z"/><path d="M9 8.5h6M9 12h4"/></svg> <span class="navlabel">Notes</span></button>
+  <button data-mode="organizer"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.8M12 18.7v2.8M2.5 12h2.8M18.7 12h2.8M5.3 5.3l2 2M16.7 16.7l2 2M18.7 5.3l-2 2M7.3 16.7l-2 2"/></svg> <span class="navlabel">Organizer</span></button>
+  <button data-mode="table"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2.5"/></svg> <span class="navlabel">Table</span></button>
+  <button data-mode="guest"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8.5v7M8.5 12h7"/></svg> <span class="navlabel">Bracket Generator</span></button>
 </nav>
 <div class="searchrow"><input id="search" type="search" placeholder="Search wrestlers, bouts, clubs, brackets" aria-label="Search"></div>
 <div id="searchresults" hidden></div>

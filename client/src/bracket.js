@@ -67,7 +67,7 @@ window.Bracket = (() => {
     if (feed && feed.from && titles[feed.from]) {
       return { name: (feed.via === 'l' ? 'Loser ' : 'Winner ') + titles[feed.from], tbd: true };
     }
-    return { name: 'TBD', tbd: true };
+    return { name: 'To be decided', tbd: true };
   }
 
   function mapMat(raw) {
@@ -79,11 +79,11 @@ window.Bracket = (() => {
   }
   function metaLine(m) {
     var parts = [];
-    if (m.status === 'completed') parts.push('FINAL · ' + (m.outcome || 'result'));
-    else if (m.live) parts.push('IN PROGRESS');
+    if (m.status === 'completed') parts.push('Final · ' + (m.outcome || 'result'));
+    else if (m.live) parts.push('Live');
     if (m.bout != null) parts.push('Match ' + m.bout);
     if (mapMat(m.mat) != null) parts.push('Mat ' + mapMat(m.mat));
-    if (!parts.length) parts.push(m.status === 'completed' ? 'FINAL' : 'Upcoming');
+    if (!parts.length) parts.push(m.status === 'completed' ? 'Final' : 'Upcoming');
     return parts.join(' · ');
   }
 
@@ -139,14 +139,14 @@ window.Bracket = (() => {
     var rows = o.matches.map(function (m) {
       var done = m.status === 'completed';
       var res = done
-        ? esc((m.outcome || 'FINAL') + (m.scoreA != null && m.scoreB != null ? ' ' + m.scoreA + '-' + m.scoreB : ''))
-        : (m.live ? 'In progress' : 'Upcoming');
+        ? esc((m.outcome || 'Final') + (m.scoreA != null && m.scoreB != null ? ' ' + m.scoreA + '-' + m.scoreB : ''))
+        : (m.live ? 'Live' : 'Upcoming');
       var cls = done ? 'done' : (m.live ? 'live' : 'todo');
       var mat = mapMat(m.mat);
       return '<tr data-mid="' + esc(m.id) + '" data-aid="' + esc(m.aid || '') + '" data-bid="' + esc(m.bid || '') + '">'
         + '<td>' + esc(m.bout ?? '') + '</td><td>' + esc(mat == null ? '' : mat) + '</td><td>' + esc(m.round || '') + '</td>'
-        + '<td>' + esc(m.a || 'TBD') + '</td><td>' + esc(m.scoreA ?? '') + '</td>'
-        + '<td>' + esc(m.scoreB ?? '') + '</td><td>' + esc(m.b || 'TBD') + '</td>'
+        + '<td>' + esc(m.a === 'TBD' ? 'To be decided' : (m.a || 'To be decided')) + '</td><td>' + esc(m.scoreA ?? '') + '</td>'
+        + '<td>' + esc(m.scoreB ?? '') + '</td><td>' + esc(m.b === 'TBD' ? 'To be decided' : (m.b || 'To be decided')) + '</td>'
         + '<td><span class="pill p-' + cls + '">' + res + '</span></td></tr>';
     }).join('');
     return '<div class="brk-scroll"><table class="scores rrtable"><tr><th>Match</th><th>Mat</th><th>Round</th>'

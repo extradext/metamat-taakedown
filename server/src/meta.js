@@ -168,19 +168,53 @@ export class MetaCardArtProvider extends CardArtProvider {
   }
 }
 
-/** Honestly-labelled local fallback: procedural SVG gradient art. NEVER shipped as real. */
+/** Honestly-labelled local fallback: procedural SVG art. NEVER shipped as real.
+ *  The placeholder is a wrestler silhouette in an action pose filling the
+ *  frame — never an empty shape, and never any text (the image layer never
+ *  renders text; the template renders that). */
 export function mockArt(prompt) {
-  const hue = [...prompt].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
+  const hue = [...String(prompt)].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="360">`
     + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">`
     + `<stop offset="0" stop-color="hsl(${hue},80%,55%)"/><stop offset="1" stop-color="hsl(${(hue + 60) % 360},85%,35%)"/>`
+    + `</linearGradient><linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="rgba(255,255,255,.30)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/>`
     + `</linearGradient></defs><rect width="500" height="360" fill="url(#g)"/>`
-    + `<circle cx="250" cy="170" r="90" fill="rgba(255,255,255,.25)"/>`
-    + `<circle cx="250" cy="170" r="55" fill="rgba(255,255,255,.25)"/></svg>`;
+    + `<polygon points="120,0 200,0 90,360 10,360" fill="url(#beam)"/>`
+    + `<polygon points="310,0 360,0 400,360 330,360" fill="url(#beam)"/>`
+    + `<ellipse cx="250" cy="330" rx="170" ry="22" fill="rgba(0,0,0,.30)"/>`
+    + `<g stroke="rgba(8,10,14,.92)" stroke-width="34" stroke-linecap="round" fill="none">`
+    + `<path d="M258 148 L232 222 L172 288"/><path d="M258 148 L296 210 L352 236"/>`
+    + `<path d="M258 158 L184 178 L138 150"/><path d="M258 158 L330 172 L372 140"/></g>`
+    + `<g stroke="rgba(255,255,255,.28)" stroke-width="7" stroke-linecap="round" fill="none">`
+    + `<path d="M266 148 L240 222 L180 288"/><path d="M266 158 L338 172 L380 140"/></g>`
+    + `<circle cx="262" cy="112" r="33" fill="rgba(8,10,14,.92)"/>`
+    + `<path d="M244 92 a33 33 0 0 1 26 -12" stroke="rgba(255,255,255,.35)" stroke-width="6" fill="none" stroke-linecap="round"/>`
+    + `</svg>`;
   return {
     art: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
     provider: 'mock-art (local dev fallback — NOT Meta)', isMock: true,
   };
+}
+
+// Plain-words translation of a live Meta call failure for demo regeneration.
+// Never includes key material. Order matters: most specific match first.
+export function describeMetaFailure(err) {
+  const raw = String(err?.message || err || 'unknown error');
+  const low = raw.toLowerCase();
+  if (/misconfigured|missing.*key|api key|unauthorized| 401/.test(low)) {
+    return 'Live art failed: missing Meta API key. Set META_MODEL_API_KEY (or MODEL_API_KEY) as an environment variable and retry — nothing was made.';
+  }
+  if (/402|billing|payment|card declined|invoice/.test(low)) {
+    return 'Live art failed: a billing problem on the Meta account (card or payment). Fix billing and retry — nothing was made.';
+  }
+  if (/429|quota|credit|rate limit|insufficient/.test(low)) {
+    return 'Live art failed: no credits left or the request limit was hit. Check the Meta plan balance and retry later — nothing was made.';
+  }
+  if (/model|not found| 404|invalid|unsupported/.test(low)) {
+    return `Live art failed: the model call was rejected (${raw.slice(0, 160)}). Nothing was made.`;
+  }
+  return `Live art failed: model error (${raw.slice(0, 160)}). Nothing was made.`;
 }
 
 // ---------- Muse Wonder (primary): NL setup -> VALIDATED rule profile ----------

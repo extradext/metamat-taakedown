@@ -4,11 +4,13 @@
    stats block, photo window, and border live in the template layer; card art
    never renders text. Finish (foil/shine/glitter) is a separate overlay. */
 :root {
-  --bg: #0e1116; --panel: #171d24; --panel2: #20272f; --ink: #f5f7fa; --muted: #a7b0ba;
-  --red: #e5484d; --green: #2f9e44; --gold: #d8a93c; --line: #2c343d;
+  --bg: #0b1220; --panel: #141d33; --panel2: #1d2946; --ink: #f5f7fa; --muted: #a9b4c7;
+  --red: #e5484d; --green: #2f9e44; --gold: #d8a93c; --line: #2c3d63;
   --card-accent: var(--gold);
   --nav-h: 76px;
   --radius: 12px;
+  /* One type scale: hero name / section / body / caption. */
+  --t-hero: 30px; --t-section: 22px; --t-body: 17px; --t-cap: 13px;
 }
 * { box-sizing: border-box; }
 body {
@@ -184,6 +186,7 @@ table.scores th { font-size: 20px; letter-spacing: 2px; }
 .fin-shiny .finish {
   background:
     repeating-linear-gradient(115deg, rgba(255,255,255,.16) 0 2px, transparent 2px 9px),
+    conic-gradient(from 210deg at 50% 38%, rgba(255,0,128,.20), rgba(255,200,0,.18), rgba(0,255,200,.18), rgba(80,120,255,.20), rgba(255,0,128,.20)),
     linear-gradient(115deg, transparent 32%, rgba(255,255,255,.34) 48%, transparent 64%);
 }
 .fin-fire { --ring: #ff7a1a; }
@@ -236,6 +239,10 @@ table.scores th { font-size: 20px; letter-spacing: 2px; }
 .artribbon { position: absolute; top: 8px; left: 8px; z-index: 2; font-size: 11px; font-weight: 800;
   letter-spacing: 1px; background: var(--gold); color: #111; border-radius: 4px; padding: 2px 8px; }
 .minicard .artribbon { font-size: 9px; top: 4px; left: 4px; padding: 1px 6px; }
+/* Live demo regenerations carry a GENERATED label (season + date), never SAMPLE ART. */
+.genribbon { position: absolute; top: 8px; left: 8px; z-index: 2; font-size: 11px; font-weight: 800;
+  letter-spacing: 1px; background: #2f9e44; color: #fff; border-radius: 4px; padding: 2px 8px; }
+.minicard .genribbon { font-size: 9px; top: 4px; left: 4px; padding: 1px 6px; }
 .noart { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--muted); font-size: 14px; }
 .studiomsg { margin: 10px 0; }
@@ -493,3 +500,164 @@ table.rrtable tr.path-on td:first-child { box-shadow: inset 2px 2px 0 var(--gold
 .modalcard { background: var(--panel); border: 2px solid var(--line); border-radius: 14px;
   max-width: 520px; width: 100%; max-height: 86vh; overflow-y: auto; padding: 18px; }
 .modalcard h2 { margin-top: 0; }
+
+/* ---- Spotlight card: layered art, scrim, template on top. ----
+   Back-to-front: .artfill (generated art, photo, or silhouette), .scrim
+   (legibility gradient), .cardlayer (nameplate/stats), .finish (foil).
+   School colours appear only as the small .sch chip — never full-card. */
+.cardface .artfill { position: absolute; inset: 0; z-index: 0; background: #000; }
+.cardface .artfill img, .cardface .artfill .silart { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cardface .scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(to bottom, rgba(0,0,0,.62) 0%, rgba(0,0,0,.18) 30%, rgba(0,0,0,.10) 55%, rgba(0,0,0,.66) 100%); }
+.cardface .cardlayer { z-index: 2; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.cardface .finish { z-index: 3; }
+.cardface .ribbonrow { display: flex; justify-content: flex-start; margin-bottom: 2%; }
+.cardface .ribbonrow .genribbon, .cardface .ribbonrow .artribbon, .cardface .ribbonrow .photoribbon { position: static; }
+.cardface .nameplate .cname { font-size: 1.4em; line-height: 1.1; }
+.cardface .subline { margin-top: 2%; font-size: .95em; font-weight: 700; color: #f0f3f6; }
+.cardface .subline .sch { font-size: 11px; margin-left: 4px; }
+.cardface .heroline { margin-top: 1%; font-size: 1em; font-weight: 800; color: var(--gold); }
+.cardface .cardpush { flex: 1 1 auto; min-height: 4%; }
+.cardface .moves { font-size: .78em; }
+.minicard .silart { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Uploaded-photo cards carry a PHOTO ribbon, same slot as the others. */
+.photoribbon { position: absolute; top: 8px; left: 8px; z-index: 2; font-size: 11px; font-weight: 800;
+  letter-spacing: 1px; background: #1d3a5f; color: #bcd7ff; border: 1px solid #bcd7ff;
+  border-radius: 4px; padding: 2px 8px; }
+.minicard .photoribbon { font-size: 9px; top: 4px; left: 4px; padding: 1px 6px; }
+/* Season-exhausted CREATE: looks disabled, still explains on tap. */
+button.big.is-disabled { opacity: .55; }
+.locknote { margin: 8px 0; padding: 10px 12px; border: 2px dashed var(--gold); border-radius: 10px;
+  background: #241c08; color: var(--gold); font-weight: 700; font-size: 15px; }
+/* Album: four labeled sections, always present even when empty. */
+.albumsec { margin: 12px 0; }
+.albumsec h4 { margin: 0 0 6px; font-size: 16px; color: var(--gold); letter-spacing: .4px; }
+.albumsec .empty { color: var(--muted); font-size: 14px; margin: 4px 0 8px; }
+.albsil { display: inline-block; width: 52px; height: 38px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+/* PART 3: bracket scan codes + short links, family-invite codes, link buttons. */
+.sheetlink { display: flex; gap: 12px; align-items: center; margin: 10px 0; padding: 10px 12px;
+  border: 1px dashed var(--line); border-radius: 10px; font-size: 14px; }
+.sheetlink .qr { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+body.packet .sheetlink { border-color: #000; color: #000; }
+.linkbtn { flex: 0 0 auto; border: 2px solid var(--line); background: transparent; color: var(--ink);
+  border-radius: 10px; padding: 6px 10px; font-size: 14px; font-weight: 700; }
+.blinkpan { margin: 0 0 8px; }
+.bigcode { font-size: 22px; letter-spacing: 3px; font-variant-numeric: tabular-nums; }
+.clubfilter { border-color: var(--gold); }
+.albsil .silart { width: 100%; height: 100%; object-fit: cover; display: block; }
+.milerow { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.milerow:last-child { border-bottom: none; }
+.milerow .hint { margin: 2px 0 0; }
+.milerow .big { min-height: 48px; font-size: 16px; flex: 0 0 auto; }
+/* Gold On display confirmation on the spotlight preview. */
+.gold-on { border-color: var(--gold) !important; box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(216,169,60,.6); }
+p.gold-on { display: inline-block; border: 2px solid var(--gold); border-radius: 10px;
+  background: #241c08; color: var(--gold); font-weight: 800; padding: 8px 14px; box-shadow: 0 0 18px rgba(216,169,60,.45); }
+#displaybar { margin-top: 8px; text-align: center; }
+#displaybar .big { width: 100%; }
+/* Generation progress: one line plus the step in words. */
+.genprog { font-weight: 800; font-size: 18px; margin: 10px 0 2px; }
+.genstep { color: var(--gold); font-size: 15px; margin: 0 0 8px; }
+.claimerr { flex-basis: 100%; }
+
+/* ---- PART 4 visual system: navy+gold chrome, type scale, pills, motion. ----
+   Purposeful motion only: view transitions <300ms, winner pulse, wire draw,
+   shimmer skeletons. Every animation below is instant under reduced motion
+   (media query or the Reduce motion setting), and text is readable before
+   any animation finishes (animations never gate content). */
+/* Type scale, applied consistently. */
+body { font-size: var(--t-body); }
+h2 { font-size: var(--t-section); }
+.heroname { font-size: var(--t-hero); }
+.bullmeta, .sheetsub, .caption { font-size: var(--t-cap); }
+/* Arena mark: mat circle + shield, gold on navy. Readable at 16px. */
+.brand { display: flex; align-items: center; gap: 8px; }
+.brandmark { width: 30px; height: 30px; flex: 0 0 auto; }
+.wordmark { white-space: nowrap; }
+.landmark { width: 64px; height: 64px; margin: 0 auto 4px; }
+.landmark svg { width: 100%; height: 100%; display: block; }
+body.packet .packetbrand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; margin-bottom: 6px; }
+body.packet .packetbrand svg { width: 34px; height: 34px; }
+/* One status-pill system: icon + label, never colour alone. */
+.pill { display: inline-flex; align-items: center; gap: 6px; }
+.pill .ic { width: 1em; height: 1em; }
+.p-held { background: #2c1a08; color: #ffc9c9; border: 1px solid var(--gold); }
+.qstate { display: inline-flex; align-items: center; gap: 6px; }
+.qstate .ic { width: 1em; height: 1em; }
+/* Nav icons always pair with a visible text label. */
+.modemenu button { flex-direction: column; gap: 2px; }
+.modemenu .ic { width: 22px; height: 22px; }
+.modemenu .navlabel { font-size: 12px; }
+#menubtn, #menupanel button, #menupanel .menuitem { gap: 8px; }
+#menubtn .ic, #menupanel .ic { width: 20px; height: 20px; flex: 0 0 auto; }
+#menupanel label.menuitem input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--gold); flex: 0 0 auto; }
+.linkbtn { display: inline-flex; align-items: center; gap: 6px; }
+.linkbtn .ic, .pinbtn .ic { width: 18px; height: 18px; }
+.pinbtn { flex: 0 0 72px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 12px; font-weight: 700; }
+.pinbtn .pinlabel { line-height: 1; }
+/* Compact mat squares: glanceable, never narrowing the column. */
+.squares { flex-wrap: wrap; }
+.square { width: 80px; height: 80px; }
+.square .v { font-size: 26px; }
+/* Flat limited-palette illustrations (navy/gold/slate only). */
+.emptywrap { text-align: center; padding: 10px 4px; }
+.emptywrap svg { width: 128px; height: auto; }
+.emptywrap .etitle { font-weight: 800; font-size: 18px; margin: 8px 0 4px; }
+.emptywrap p { color: var(--muted); margin: 4px 0; }
+/* View transitions under 300ms; content paints first, animation decorates. */
+#view.viewswap { animation: viewin 220ms ease-out; }
+@keyframes viewin { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* Winner glow pulses briefly after a finalized result, then rests on gold. */
+.winnerglow { animation: winpulse 1.6s ease-in-out 3; }
+@keyframes winpulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--gold), 0 0 14px rgba(216,169,60,.6); }
+  50% { box-shadow: 0 0 0 4px var(--gold), 0 0 30px rgba(216,169,60,.95); }
+}
+/* Bracket wires draw in on expand; followed paths draw gold on tap. */
+.bracket-sheet.draw .wire { stroke-dasharray: 520; stroke-dashoffset: 520; animation: wiredraw 260ms ease-out forwards; }
+.wire.path-on { stroke-dasharray: 520; animation: wiredraw 260ms ease-out; }
+@keyframes wiredraw { to { stroke-dashoffset: 0; } }
+/* Shimmer skeletons on every view switch. */
+.skel { background: linear-gradient(100deg, #232b33 40%, #33405a 50%, #232b33 60%);
+  background-size: 200% 100%; animation: skshimmer 1.2s linear infinite; }
+@keyframes skshimmer { to { background-position: -200% 0; } }
+/* Visible focus, always. */
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--gold); outline-offset: 2px; }
+/* High-contrast setting: true black, brighter ink, heavier key lines. */
+body.hc { --bg: #000; --panel: #0a0f1c; --panel2: #111a30; --ink: #fff; --muted: #e8edf2; --line: #8a94a3; }
+body.hc .pill, body.hc .p-todo { border-width: 2px; }
+body.hc .brow.tbd .bname { color: var(--ink); }
+body.hc :focus-visible { outline-width: 4px; }
+/* Reduced-motion setting (or media query): everything instant and still. */
+body.rm *, body.rm *::before, body.rm *::after {
+  animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important; }
+body.rm .skel { animation: none; background: #2c3a58; }
+body.rm .winnerglow { animation: none; }
+body.rm .bracket-sheet.draw .wire, body.rm .wire.path-on { animation: none; stroke-dashoffset: 0; }
+body.rm #view.viewswap { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; }
+  .skel { animation: none; background: #2c3a58; }
+  .winnerglow { animation: none; }
+  .wire.path-on { animation: none; }
+  #view.viewswap { animation: none; }
+}
+/* Compact desktop sidebar: narrow rail, icon + label rows, same destinations. */
+@media (min-width: 960px) {
+  body { padding-left: 196px; }
+  .modemenu { width: 196px; }
+  .modemenu button { flex-direction: row; justify-content: flex-start; gap: 10px;
+    min-height: 50px; font-size: 15px; padding: 0 12px; }
+  .modemenu .ic { width: 20px; height: 20px; flex: 0 0 auto; }
+  .modemenu .navlabel { font-size: 15px; }
+  .matchup { grid-template-columns: 168px 168px; }
+}
+@media print {
+  .emptywrap svg, .brandmark { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
