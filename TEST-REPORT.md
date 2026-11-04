@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-11-03 — **169 tests, 53 suites, 169 pass, 0 fail** (159 prior + 10 new: 11 named card presets + mystery resolution + prompt layers; image-route model-slot guard + exact URL/model in failures; questionnaire core/pool/shuffle/preset chips; art-window card + foil finishes + regen strip; demo-regen no-re-roll cap; no-paid-aspect guard).
+Last full run: 2026-11-03 — **170 tests, 53 suites, 170 pass, 0 fail** (159 prior + 11 new: 11 named card presets + mystery resolution + prompt layers; image-route model-slot guard + exact URL/model in failures; raw-b64 art wrapped as data URL; questionnaire core/pool/shuffle/preset chips; art-window card + foil finishes + regen strip; demo-regen no-re-roll cap; no-paid-aspect guard).
 
 ## Coverage by spec area
 

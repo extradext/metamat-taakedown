@@ -1222,6 +1222,18 @@ describe('image route: image model only, exact request in failures', () => {
     const art = new MetaCardArtProvider({ USE_REAL_META_AI: 'true', META_MODEL_API_KEY: 'k', META_MODEL_IMAGE: 'muse-spark-1.3' });
     await assert.rejects(() => art.generateArt({ prompt: 'x' }), /text model ID.*text routes/);
   });
+  it('raw b64_json art is wrapped as a data URL so <img> renders it', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUg' }] }) });
+    try {
+      const art = new MetaCardArtProvider({ USE_REAL_META_AI: 'true', META_MODEL_API_KEY: 'k' });
+      const out = await art.generateArt({ prompt: 'x' });
+      assert.equal(out.art, 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg');
+      assert.equal(out.isMock, false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
   it('live failures name the exact URL and model sent', async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: false, status: 404, headers: { get: () => null }, text: async () => '' });

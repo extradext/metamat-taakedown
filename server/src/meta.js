@@ -217,9 +217,12 @@ export class MetaCardArtProvider extends CardArtProvider {
     }
     return metaQueue(async () => {
       const data = await metaPost(this.env, '/images/generations', { model, prompt, n: 1 });
-      const url = data?.data?.[0]?.url || data?.data?.[0]?.b64_json;
-      if (!url) throw new Error('Meta Image returned no art payload');
-      return { art: url, provider: this.label, isMock: false };
+      const raw = data?.data?.[0]?.url || data?.data?.[0]?.b64_json;
+      if (!raw) throw new Error('Meta Image returned no art payload');
+      // b64_json arrives raw (OpenAI-compatible shape): wrap it as a data
+      // URL so <img> renders it. Remote URLs and data: URLs pass through.
+      const art = /^https?:\/\//.test(raw) || raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+      return { art, provider: this.label, isMock: false };
     });
   }
 }
