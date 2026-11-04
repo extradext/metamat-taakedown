@@ -13,7 +13,7 @@ import {
   register, checkin, scoreMatch, tableInput, giveKudos, kudosTallies, createCardEvent, setOnDisplay,
   demoRegenerateCard, DEMO_REGEN_EDITION, DEMO_REGEN_LABEL,
   mintMilestone, earnedMilestones, milestoneEarnings, isFinalizedResult,
-  seasonCreationState, SEASON_LOCK_MESSAGE, albumSections, savePhotoCard,
+  seasonCreationState, SEASON_LOCK_MESSAGE, SEASON_CREATION_LIMIT, albumSections, savePhotoCard,
   setHouseholdPin, checkHouseholdPin, clockIn, clockOut, tableLog, KUDOS_CAP,
   createInvite, acceptInvite, revokeInvite, findInvite,
   tournamentStats, ownsTournament, nextBoutFor, isLiveBout,
@@ -21,7 +21,7 @@ import {
 import { buildDemo } from '../src/seed.js';
 import { logoutToken, normalizeBulletin as normBullSrv, clearsAfterLabel, parseBoutQuery, bracketShortLink, qrSvg, createApp } from '../src/app.js';
 import { encodeHistory, decodeHistory } from '../src/encoding.js';
-import { providerStatus, validateProposedProfile, mockWonderParse, describeMetaFailure } from '../src/meta.js';
+import { providerStatus, validateProposedProfile, mockWonderParse, describeMetaFailure, metaUrl, MetaCardArtProvider, CARD_PRESETS, CARD_PRESET_IDS, pickPreset, buildArtPrompt, VARIANT_WORDS } from '../src/meta.js';
 
 const ROOT = new URL('../../', import.meta.url);
 
@@ -161,16 +161,22 @@ describe('kudos cap: 1 identified giver, max 3 per tournament, server-side', () 
   });
 });
 
-describe('card lock: once-per-season, 3-4 kept, one display, milestones earned-only', () => {
-  it('locks after one event and shares one on-display record', async () => {
+describe('card lock: four generations per season, 3-4 kept each, one display, milestones earned-only', () => {
+  it('locks after four events and shares one on-display record', async () => {
     const db = blank();
     const w = createWrestler(db, { name: 'C', grade: '5' });
-    const variants = await createCardEvent(db, w.id, 'S1', { answers: { color: 'red' } });
-    assert.ok(variants.length >= 3 && variants.length <= 4);
-    assert.equal(db.onDisplay[w.id].card_id, variants[0].id);
-    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {} }), /One card creation per season/);
-    setOnDisplay(db, w.id, variants[2].id);
-    assert.equal(db.onDisplay[w.id].card_id, variants[2].id); // album <-> My Wrestler: ONE record
+    assert.equal(SEASON_CREATION_LIMIT, 4);
+    const sets = [];
+    for (let n = 1; n <= 4; n++) {
+      const variants = await createCardEvent(db, w.id, 'S1', { answers: { color: 'red' } });
+      assert.ok(variants.length >= 3 && variants.length <= 4);
+      assert.ok(variants.every((v) => v.creation === n), `set ${n} stamped creation ${n}`);
+      sets.push(variants);
+    }
+    assert.equal(db.onDisplay[w.id].card_id, sets[3][0].id, 'display follows the latest creation');
+    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {} }), /Season creation limit reached/);
+    setOnDisplay(db, w.id, sets[0][2].id);
+    assert.equal(db.onDisplay[w.id].card_id, sets[0][2].id); // album <-> My Wrestler: ONE record
   });
   it('milestones mint only when earned against real records', async () => {
     const db = blank();
@@ -193,15 +199,19 @@ describe('demo regeneration: real lock unchanged, demo-only, never counted', () 
     generateArt: async () => ({ art, provider: 'meta:test-image', isMock: false }),
   });
 
-  it('real season lock is unchanged: 1 creation per season, then CARD_LOCK (Parent and Organizer alike)', async () => {
+  it('real season lock: 4 creations per season, then CARD_LOCK (Parent and Organizer alike)', async () => {
     const db = blank();
     const w = createWrestler(db, { name: 'Real', grade: '5' }); // NOT demo: a real account kid
     assert.equal(w.is_demo, false);
-    const variants = await createCardEvent(db, w.id, 'S1', { answers: {}, actor: 'acc-guardian' });
-    assert.ok(variants.length >= 3 && variants.length <= 4);
-    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {}, actor: 'acc-organizer' }), /One card creation per season/);
+    let perEvent = 0;
+    for (let n = 0; n < 4; n++) {
+      const variants = await createCardEvent(db, w.id, 'S1', { answers: {}, actor: 'acc-guardian' });
+      assert.ok(variants.length >= 3 && variants.length <= 4);
+      perEvent = variants.length;
+    }
+    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {}, actor: 'acc-organizer' }), /Season creation limit reached/);
     const standards = Object.values(db.cards).filter((c) => c.wrestler_id === w.id && c.season_id === 'S1' && c.edition === 'standard');
-    assert.equal(standards.length, variants.length);
+    assert.equal(standards.length, 4 * perEvent);
   });
 
   it('demo regeneration refuses real wrestlers and never touches their locked card', async () => {
@@ -213,27 +223,42 @@ describe('demo regeneration: real lock unchanged, demo-only, never counted', () 
     assert.equal(Object.keys(db.cards).length, variants.length); // nothing added
   });
 
-  it('demo regeneration bypasses the lock without counting: edition, display, and audit stay clean', async () => {
+  it('demo regeneration keeps a full variant set without counting: edition, display, and audit stay clean', async () => {
     const db = blank();
     const w = createWrestler(db, { name: 'Demo', grade: '5', isDemo: true });
-    const variants = await createCardEvent(db, w.id, 'S1', { answers: {} });
-    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {} }), /One card creation per season/);
-    const regen = await demoRegenerateCard(db, w.id, 'S1', { answers: {}, artProvider: liveStub() });
-    assert.equal(regen.edition, DEMO_REGEN_EDITION);
-    assert.equal(regen.generatedLabel, DEMO_REGEN_LABEL);
-    assert.equal(regen.generatedLabel, 'GENERATED');
-    assert.ok(regen.generatedAt);
-    assert.equal(regen.season_id, 'S1');
-    assert.equal(regen.artIsMock, false);
-    // Season creation count unchanged: still only the original standard set.
+    const first = await createCardEvent(db, w.id, 'S1', { answers: {} });
+    let last = first;
+    for (let n = 0; n < 3; n++) last = await createCardEvent(db, w.id, 'S1', { answers: {} });
+    await assert.rejects(() => createCardEvent(db, w.id, 'S1', { answers: {} }), /Season creation limit reached/);
+    const regens = await demoRegenerateCard(db, w.id, 'S1', { answers: {}, artProvider: liveStub() });
+    assert.ok(regens.length >= 3 && regens.length <= 4, 'one regen keeps 3-4 variants');
+    for (const regen of regens) {
+      assert.equal(regen.edition, DEMO_REGEN_EDITION);
+      assert.equal(regen.generatedLabel, DEMO_REGEN_LABEL);
+      assert.equal(regen.generatedLabel, 'GENERATED');
+      assert.ok(regen.generatedAt);
+      assert.equal(regen.season_id, 'S1');
+      assert.equal(regen.artIsMock, false);
+      assert.ok(CARD_PRESET_IDS.includes(regen.template.theme), 'variant theme is a real preset');
+    }
+    // Season creation count unchanged: still only the original standard sets.
     const standards = Object.values(db.cards).filter((c) => c.wrestler_id === w.id && c.season_id === 'S1' && c.edition === 'standard');
-    assert.equal(standards.length, variants.length);
-    // The real season-locked display record is untouched.
-    assert.equal(db.onDisplay[w.id].card_id, variants[0].id);
+    assert.equal(standards.length, 4 * first.length);
+    // The real season-locked display record is untouched: ONE stays on display.
+    assert.equal(db.onDisplay[w.id].card_id, last[0].id);
     // Logged as demo regeneration, never as a season creation.
     const actions = Object.values(db.audit).map((e) => e.action);
     assert.ok(actions.includes('card.demo-regenerated'));
-    assert.equal(actions.filter((a) => a === 'card.created').length, 1);
+    assert.equal(actions.filter((a) => a === 'card.created').length, 4);
+  });
+
+  it('demo regeneration allows no re-rolls: a second call explains instead of minting', async () => {
+    const db = blank();
+    const w = createWrestler(db, { name: 'Demo', grade: '5', isDemo: true });
+    const first = await demoRegenerateCard(db, w.id, 'S1', { answers: {}, artProvider: liveStub() });
+    await assert.rejects(() => demoRegenerateCard(db, w.id, 'S1', { answers: {}, artProvider: liveStub() }), /already used for this season/);
+    const kept = Object.values(db.cards).filter((c) => c.edition === DEMO_REGEN_EDITION);
+    assert.equal(kept.length, first.length, 'no extra variants minted');
   });
 
   it('demo regeneration needs the live Meta path: mock mode is refused loudly, never labeled generated', async () => {
@@ -245,9 +270,9 @@ describe('demo regeneration: real lock unchanged, demo-only, never counted', () 
 
   it('live failures speak in plain words: key, billing, credits, model error', () => {
     assert.match(describeMetaFailure(new Error('Real Meta calls requested (USE_REAL_META_AI=true) but misconfigured. Missing: META_MODEL_API_KEY')), /missing Meta API key/i);
-    assert.match(describeMetaFailure(new Error('Meta Model API /v1/images/generations failed (402): payment required')), /billing/i);
-    assert.match(describeMetaFailure(new Error('Meta Model API /v1/images/generations failed (429): quota exceeded')), /credits|limit/i);
-    assert.match(describeMetaFailure(new Error('Meta Model API /v1/images/generations failed (404): model not found')), /model/i);
+    assert.match(describeMetaFailure(new Error('Meta Model API /images/generations failed (402): payment required')), /billing/i);
+    assert.match(describeMetaFailure(new Error('Meta Model API /images/generations failed (429): quota exceeded')), /credits|limit/i);
+    assert.match(describeMetaFailure(new Error('Meta Model API /images/generations failed (404): model not found')), /model/i);
   });
 
   it('a failing live call saves nothing and keeps the plain-words reason', async () => {
@@ -279,15 +304,18 @@ describe('demo regeneration visibility: Demo mode only (static guards)', () => {
 });
 
 describe('season lock button state: one source, used count, honest message', () => {
-  it('fresh wrestler: 0 used / 1 remaining; after creation: 1 used / 0 remaining with the button message', async () => {
+  it('fresh wrestler: 0 used / 4 remaining; counts climb per event; locked at 4 with the button message', async () => {
     const db = blank();
     const w = createWrestler(db, { name: 'S', grade: '5' });
     assert.deepEqual(seasonCreationState(db, w.id, 'S1'),
-      { used: 0, remaining: 1, locked: false, message: 'Season S1: 1 creation available.' });
+      { used: 0, remaining: 4, locked: false, message: 'Season S1: 4 of 4 creations available.' });
     await createCardEvent(db, w.id, 'S1', { answers: {} });
     assert.deepEqual(seasonCreationState(db, w.id, 'S1'),
-      { used: 1, remaining: 0, locked: true, message: SEASON_LOCK_MESSAGE });
-    assert.equal(SEASON_LOCK_MESSAGE, 'Season creation used — next season or a paid change can create a new card');
+      { used: 1, remaining: 3, locked: false, message: 'Season S1: 3 of 4 creations available.' });
+    for (let n = 0; n < 3; n++) await createCardEvent(db, w.id, 'S1', { answers: {} });
+    assert.deepEqual(seasonCreationState(db, w.id, 'S1'),
+      { used: 4, remaining: 0, locked: true, message: SEASON_LOCK_MESSAGE });
+    assert.equal(SEASON_LOCK_MESSAGE, 'Season creations used (4 of 4) — a new season starts a fresh set');
   });
   it('photos, demo regens, and milestones never count as the season creation', async () => {
     const db = blank();
@@ -302,9 +330,15 @@ describe('season lock button state: one source, used count, honest message', () 
   });
   it('CREATE area shows the why and explains on tap instead of a silent no-op (static)', () => {
     const studioJs = readFileSync(new URL('../../client/src/studio.js', import.meta.url), 'utf8');
-    assert.ok(studioJs.includes('Season creation used — next season or a paid change can create a new card'));
+    assert.ok(studioJs.includes('Season creations used (4 of 4) — a new season starts a fresh set'));
     assert.ok(studioJs.includes('aria-disabled'));
     assert.ok(studioJs.includes('locknote'));
+  });
+  it('no paid path anywhere: the season allowance is the whole rule (static)', () => {
+    const studioJs = readFileSync(new URL('../../client/src/studio.js', import.meta.url), 'utf8');
+    const tourJs = readFileSync(new URL('../../server/src/tournament.js', import.meta.url), 'utf8');
+    assert.ok(!studioJs.includes('paid'), 'studio has no paid aspect');
+    assert.ok(!tourJs.includes('paid'), 'card economy has no paid aspect');
   });
 });
 
@@ -379,7 +413,7 @@ describe('album: four labeled sections, always present even when empty', () => {
       assert.ok(studioJs.includes(s), `album section "${s}" present`);
     }
     assert.ok(studioJs.includes('No milestones earned yet — win a finalized bout to unlock one.'));
-    assert.ok(studioJs.includes('12 quick questions'));
+    assert.ok(studioJs.includes('6 quick questions'));
     assert.ok(studioJs.includes('Generating your card…'));
     assert.ok(studioJs.includes('Set as display'));
   });
@@ -517,6 +551,28 @@ describe('provider honesty: mock by default, loud when real is misconfigured', (
       sam: 'sam-3.1', voice: 'muse-voice-transcribe-1.0',
     });
     assert.equal(real.base, 'https://api.meta.ai/v1');
+  });
+  it('live image calls hit base + /images/generations (single /v1, never doubled)', async () => {
+    assert.equal(metaUrl({}, '/images/generations'), 'https://api.meta.ai/v1/images/generations');
+    const seen = {};
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts) => {
+      seen.url = String(url);
+      seen.body = JSON.parse(opts.body);
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: [{ url: 'https://cdn.example/art.png' }] }) };
+    };
+    try {
+      const art = new MetaCardArtProvider({ USE_REAL_META_AI: 'true', META_MODEL_API_KEY: 'test-key-only' });
+      const out = await art.generateArt({ prompt: 'test prompt, no text' });
+      assert.equal(seen.url, 'https://api.meta.ai/v1/images/generations');
+      assert.ok(!seen.url.includes('/v1/v1'), 'doubled /v1 path 404s on the live API');
+      assert.equal(seen.body.model, 'muse-image-1.0');
+      assert.equal(seen.body.prompt, 'test prompt, no text');
+      assert.equal(seen.body.n, 1);
+      assert.deepEqual(out, { art: 'https://cdn.example/art.png', provider: 'meta:muse-image-1.0', isMock: false });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
   it('SAM box grammar parses per the documented format', async () => {
     const { parseSamBoxes } = await import('../src/meta.js');
@@ -979,6 +1035,15 @@ describe('PART 3 (f): table sign-in log, Match wording, named undo', () => {
     assert.ok(p3appJs.includes('bouts apart'), 'distance count "bouts apart" stays');
     assert.ok(p3srvJs.includes('· Match ${m.bout_number}'), 'spectator labels use Match');
   });
+  it('finalize confirms in-view, advances, and explains failures (static)', () => {
+    const tm = p3section('async function tableMode', '/* ---------------- Tournament setup');
+    const fin = tm.slice(tm.indexOf('id="final"'));
+    assert.ok(!fin.includes('prompt('), 'finalize never uses blocking prompts');
+    assert.ok(!fin.includes('alert('), 'finalize never uses blocking alerts');
+    for (const s of ['Match finalized.', 'Could not finalize', 'Next match', 'Confirm final', 'data-win=', 'data-out=']) {
+      assert.ok(fin.includes(s), `finalize flow shows "${s}"`);
+    }
+  });
   it('scoreboard undo names the play it takes back (static)', () => {
     const tm = p3section('async function tableMode', '/* ---------------- Tournament setup');
     assert.ok(tm.includes('id="undo">Undo last point<'), 'undo names the play');
@@ -1059,5 +1124,142 @@ describe('PART 3 (live routes): notes save, sharing lifecycle, table score/final
     const me = t1.workers.find((w) => w.name === 'Demo Probe');
     assert.ok(me.in && me.out, 'sign-in and sign-out times recorded');
     assert.equal(me.shift, 'off shift');
+  });
+  it('finalize confirms with a displayable summary; repeat finalize explains why', async () => {
+    const { dispatch, auth } = demoApp();
+    const H = auth('acc-table1');
+    await dispatch('POST', '/api/table/clockin', {
+      headers: H, body: { tournamentId: 'demo-tournament', table: '1', name: 'Fin Probe' },
+    });
+    const q = await dispatch('GET', '/api/table/demo-tournament/queue', { headers: H, query: qp({ table: '1' }) });
+    const m0 = q.queue[0];
+    const fin = await dispatch('POST', '/api/table/finalize', {
+      headers: H,
+      body: { tournamentId: 'demo-tournament', bracketId: m0.bracket_id, matchId: m0.match_id, winner: 'GREEN', outcome: 'pin' },
+    });
+    assert.equal(fin.ok, true);
+    assert.equal(fin.summary.winnerSide, 'GREEN');
+    assert.equal(fin.summary.winnerName, m0.b);
+    assert.equal(fin.summary.outcome, 'pin');
+    await assert.rejects(
+      dispatch('POST', '/api/table/finalize', {
+        headers: H,
+        body: { tournamentId: 'demo-tournament', bracketId: m0.bracket_id, matchId: m0.match_id, winner: 'GREEN', outcome: 'pin' },
+      }),
+      /already completed; use the correction workflow/);
+  });
+});
+
+describe('day totals: one decided-match dataset; buckets never exceed completed', () => {
+  const check = (db, label) => {
+    const s = tournamentStats(db, 'demo-tournament');
+    const decided = s.matchesWrestled;
+    for (const k of ['pins', 'techFalls', 'majors', 'decisions', 'injuryDefaults', 'forfeits']) {
+      assert.ok(s[k] <= decided, `${label}: ${k}=${s[k]} <= completed=${decided}`);
+    }
+    assert.equal(s.pins + s.techFalls + s.majors + s.decisions + s.injuryDefaults + s.forfeits, decided,
+      `${label}: outcome buckets sum to completed matches`);
+  };
+  it('fresh seed and post-finalize stats both satisfy the invariant (live routes)', async () => {
+    const { dispatch, auth, db } = demoApp();
+    check(db, 'fresh seed');
+    const H = auth('acc-table1');
+    await dispatch('POST', '/api/table/clockin', {
+      headers: H, body: { tournamentId: 'demo-tournament', table: '1', name: 'Stat Probe' },
+    });
+    const q = await dispatch('GET', '/api/table/demo-tournament/queue', { headers: H, query: qp({ table: '1' }) });
+    const m0 = q.queue[0];
+    await dispatch('POST', '/api/table/finalize', {
+      headers: H,
+      body: { tournamentId: 'demo-tournament', bracketId: m0.bracket_id, matchId: m0.match_id, winner: 'RED', outcome: 'decision' },
+    });
+    check(db, 'after finalize');
+  });
+  it('bracket rows count decided with the same predicate as stats (static)', () => {
+    const spec = p3section('async function spectator', '/* ---------------- Organizer');
+    assert.ok(spec.includes("m.status === 'completed' && m.outcome != null"), 'rows count decided matches only');
+    const tourJs = readFileSync(new URL('../../server/src/tournament.js', import.meta.url), 'utf8');
+    assert.ok(tourJs.includes('matches.filter(isDecided)'), 'stats count the same decided set');
+  });
+});
+
+describe('card presets: named art-layer prompt sets, never border-colour swaps', () => {
+  const ALL = ['classic', 'shiny-glittery', 'fire', 'ice', 'lightning', 'attack', 'brick-wall', 'super-silly', 'friendly', 'fierce', 'a-little-scary'];
+  it('eleven presets each define pose, background, palette, finish, and energy', () => {
+    assert.deepEqual(CARD_PRESET_IDS, ALL);
+    for (const id of ALL) {
+      const p = CARD_PRESETS[id];
+      assert.ok(p.name, `${id} named`);
+      for (const k of ['pose', 'background', 'palette', 'finish', 'energy']) {
+        assert.ok(p[k] && p[k].length > 8, `${id}.${k} set`);
+      }
+    }
+  });
+  it('pickPreset round-trips ids, resolves mystery per call, falls back honestly', () => {
+    for (const id of ALL) assert.equal(pickPreset(id), id);
+    assert.equal(pickPreset('mystery', () => 0), ALL[0]);
+    assert.equal(pickPreset('mystery', () => 0.999), ALL[ALL.length - 1]);
+    assert.equal(pickPreset('shuffle', () => 0.5), ALL[Math.floor(0.5 * ALL.length)]);
+    assert.equal(pickPreset('nope'), 'classic');
+    assert.equal(pickPreset('shiny'), 'shiny-glittery', 'legacy style maps on');
+  });
+  it('art prompts embed all five preset layers, the no-text rule, and per-variant words', () => {
+    const a = buildArtPrompt({ answers: { preset: 'fire', color: 'red' }, hero: 'boy hero', variantWord: VARIANT_WORDS[0] });
+    for (const frag of [CARD_PRESETS.fire.pose, CARD_PRESETS.fire.background, CARD_PRESETS.fire.palette, CARD_PRESETS.fire.finish, CARD_PRESETS.fire.energy]) {
+      assert.ok(a.includes(frag), 'fire layer present');
+    }
+    assert.match(a, /STRICT: no text, no letters, no numbers/);
+    assert.ok(a.includes(VARIANT_WORDS[0]));
+    const b = buildArtPrompt({ answers: { preset: 'ice' }, hero: 'boy hero', variantWord: VARIANT_WORDS[1] });
+    assert.notEqual(a, b, 'different presets/words differ');
+    const legacy = buildArtPrompt({ answers: { style: 'fire', color: 'blue', animal: 'tiger' }, hero: 'x' });
+    assert.ok(legacy.includes('Preset Fire:'), 'legacy style answers still resolve');
+  });
+});
+
+describe('image route: image model only, exact request in failures', () => {
+  it('refuses a text model ID on the image route before any network call', async () => {
+    const art = new MetaCardArtProvider({ USE_REAL_META_AI: 'true', META_MODEL_API_KEY: 'k', META_MODEL_IMAGE: 'muse-spark-1.3' });
+    await assert.rejects(() => art.generateArt({ prompt: 'x' }), /text model ID.*text routes/);
+  });
+  it('live failures name the exact URL and model sent', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 404, headers: { get: () => null }, text: async () => '' });
+    try {
+      const art = new MetaCardArtProvider({ USE_REAL_META_AI: 'true', META_MODEL_API_KEY: 'k' });
+      await assert.rejects(() => art.generateArt({ prompt: 'x' }),
+        /POST https:\/\/api\.meta\.ai\/v1\/images\/generations \(model muse-image-1\.0\) failed \(404\)/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe('studio flow: guided questions, presets, art-window card (static)', () => {
+  const studioJs = readFileSync(new URL('../../client/src/studio.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../client/src/styles.css', import.meta.url), 'utf8');
+  it('core questions, drawn pool, shuffle, and all 12 preset chips', () => {
+    for (const s of ['Friendly', 'Fierce', 'A little scary', 'Attack', 'Brick-wall defense', 'Super silly']) {
+      assert.ok(studioJs.includes(s), `core answer "${s}" present`);
+    }
+    assert.ok(studioJs.includes('QSETS_POOL'), 'drawn pool present');
+    assert.ok(studioJs.includes('Shuffle questions'), 'shuffle button present');
+    for (const id of ['classic', 'shiny-glittery', 'fire', 'ice', 'lightning', 'attack', 'brick-wall', 'super-silly', 'friendly', 'fierce', 'a-little-scary', 'mystery']) {
+      assert.ok(studioJs.includes(`id: '${id}'`), `preset chip "${id}" present`);
+    }
+  });
+  it('template-first card: art composited into the art window, school-driven design, foil finishes', () => {
+    assert.ok(studioJs.includes('<div class="artwin">'), 'art window present');
+    assert.ok(!studioJs.includes('artfill'), 'no floating overlay layer');
+    assert.ok(studioJs.includes('schoolStyle'), 'school colours drive the design');
+    for (const id of ['brick-wall', 'super-silly', 'friendly', 'fierce', 'a-little-scary', 'shiny-glittery', 'attack']) {
+      assert.ok(css.includes(`.fin-${id}`), `finish treatment .fin-${id} present`);
+    }
+    assert.ok(css.includes('foilsheen'), 'foil sheen sweep present');
+  });
+  it('regen previews the kept set together with preset names, no re-roll path', () => {
+    assert.ok(studioJs.includes('regenStrip'), 'preview-together strip present');
+    assert.ok(studioJs.includes('no re-rolls'), 'no re-roll wording present');
+    assert.ok(studioJs.includes('presetName'), 'variant preset names shown');
   });
 });

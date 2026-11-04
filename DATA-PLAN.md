@@ -59,7 +59,7 @@ the queue explains holds in plain words.
 
 ## Card economy
 
-One creation event per season → 3–4 variants kept, ONE on display
+Up to four creation events per season → 3–4 variants kept each, ONE on display
 (shared `card_on_display` record between Album and My Wrestler). Milestone
 editions only when server-verified as earned. Art layer only from the model;
 template renders all text/stats.

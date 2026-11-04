@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-11-02 — **82 tests, 24 suites, 82 pass, 0 fail** (78 prior + 4 new: bulletin entry normalization — legacy strings, expiry filter, pinned-first order, author/timestamp).
+Last full run: 2026-11-03 — **169 tests, 53 suites, 169 pass, 0 fail** (159 prior + 10 new: 11 named card presets + mystery resolution + prompt layers; image-route model-slot guard + exact URL/model in failures; questionnaire core/pool/shuffle/preset chips; art-window card + foil finishes + regen strip; demo-regen no-re-roll cap; no-paid-aspect guard).
 
 ## Coverage by spec area
 
@@ -43,6 +43,17 @@ Last full run: 2026-11-02 — **82 tests, 24 suites, 82 pass, 0 fail** (78 prior
   ISO settings date → readable day without UTC shift; bulletin entries →
   Alerts/Parking/Snacks-Concessions/Raffles/General-Info sections with keyword
   fallback, legacy-string tolerance, expiry filter, pinned-first order.
+- **Card fixes (Nov 3):** image route sends base + `/images/generations`
+  once (doubled `/v1/v1` 404 fixed, pinned by stub-fetch transport test);
+  text model IDs refused on the image route; failures name exact URL+model;
+  11 named presets + mystery/shuffle resolution; 4-generation season
+  allowance (no paid path); demo regen keeps 3–4 variants, one per season
+  (no re-rolls); guided questionnaire (2 core + 4 drawn, shuffle);
+  template-first art-window card, foil finishes, school-driven design.
+- **Table + stats (Nov 3):** finalize confirms in-view with a displayable
+  summary, advances to the next match, explains failures (no blocking
+  dialogs); day totals share one decided-match predicate, outcome buckets
+  provably ≤ completed (fresh seed + post-finalize).
 - **End-to-end smoke** (`server/tests/e2e.local.js`, loopback-only, run
   manually — not part of `npm test`): boot, login ×4 roles, snapshot,
   clock-in, live score, finalize, rest HOLD at finalize, kudos cap + guest

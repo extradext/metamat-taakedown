@@ -503,6 +503,13 @@ export function lastBoutEnd(matches, wrestlerId) {
   return latest;
 }
 
+/** One decided-match predicate for every day total: completed AND carrying
+ *  a result. Day stats, snapshots, and bracket rows all count this same set,
+ *  so outcome buckets can never exceed completed matches. */
+export function isDecided(m) {
+  return !!m && m.status === 'completed' && !!m.result;
+}
+
 // ---------- bout cap (bouts actually wrestled; forfeits received excluded) ----------
 export function boutsWrestled(matches, wrestlerId) {
   let n = 0;

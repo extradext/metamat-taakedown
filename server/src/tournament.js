@@ -7,9 +7,9 @@ import { newId } from './ids.js';
 import { audit, tournamentKudos } from './stores.js';
 import {
   eligibility, restStatus, lastBoutEnd, boutsWrestled, validateResultInput,
-  recordResult, resolveWrestler, WRESTLED_OUTCOMES,
+  recordResult, resolveWrestler, WRESTLED_OUTCOMES, isDecided,
 } from './engine.js';
-import { buildArtPrompt, MetaCardArtProvider, describeMetaFailure } from './meta.js';
+import { buildArtPrompt, MetaCardArtProvider, describeMetaFailure, CARD_PRESETS, pickPreset, VARIANT_WORDS } from './meta.js';
 
 // ---------- registration + check-in (Path A/B share one gate) ----------
 export function register(db, tournamentId, wrestlerId, { weight = null, actor = 'guardian' } = {}) {
@@ -235,7 +235,7 @@ export function setTournamentInfo(db, tid, patch, { actor = 'organizer' } = {}) 
 export function tournamentStats(db, tid) {
   const brackets = Object.values(db.brackets).filter((b) => b.tournament_id === tid);
   const matches = brackets.flatMap((b) => b.structure.matches);
-  const done = matches.filter((m) => m.status === 'completed' && m.result);
+  const done = matches.filter(isDecided);
   const outcomes = {};
   let points = 0, clockSec = 0, bloodSec = 0, injurySec = 0, fastestPin = null;
   for (const m of done) {
@@ -320,23 +320,28 @@ const HERO_SETS = {
 export async function createCardEvent(db, wrestlerId, seasonId, { answers = {}, heroMix = 'mixed', actor = 'guardian', artProvider = null } = {}) {
   const lock = seasonCreationState(db, wrestlerId, seasonId);
   if (lock.locked) {
-    const err = new Error(`One card creation per season — this season already has its set. ${SEASON_LOCK_MESSAGE}. Milestone editions unlock only when earned.`);
+    const err = new Error(`Season creation limit reached — ${SEASON_CREATION_LIMIT} creations per season, all used. ${SEASON_LOCK_MESSAGE}. Milestone editions unlock only when earned.`);
     err.code = 'CARD_LOCK';
     throw err;
   }
+  const creation = lock.used + 1;
   const heroes = HERO_SETS[heroMix] || HERO_SETS.mixed;
   // Default Mixed set follows the wrestler AND always includes a girl hero.
   const provider = artProvider || new MetaCardArtProvider();
   const variants = [];
   for (let i = 0; i < CARD_VARIANTS; i++) {
-    const prompt = buildArtPrompt({ answers, hero: heroes[i % heroes.length] });
+    // One preset per variant ('mystery' resolves randomly each time), plus a
+    // per-variant scene word — the set differs by preset and parameters.
+    const pid = pickPreset(answers.preset || answers.style || 'classic');
+    const word = VARIANT_WORDS[i % VARIANT_WORDS.length];
+    const prompt = buildArtPrompt({ answers, hero: heroes[i % heroes.length], preset: pid, variantWord: word });
     const { art, provider: prov, isMock } = await provider.generateArt({ prompt });
     const id = newId();
     db.cards[id] = {
       id, wrestler_id: wrestlerId, season_id: seasonId, variant_index: i,
-      edition: 'standard',
+      edition: 'standard', creation,
       template: {
-        layout: answers.layout || 'classic', theme: answers.style || 'classic',
+        layout: answers.layout || 'classic', theme: pid, presetName: CARD_PRESETS[pid].name, variantWord: word,
         border: 'foil', name: db.wrestlers[wrestlerId]?.name || 'Wrestler',
         moves: answers.moves || ['Snapdown', 'Stand-up', 'Half Nelson'],
         flavorLine: 'Card flavour — not wrestling ability. Never used for seeding, ranking, or matching.',
@@ -348,7 +353,7 @@ export async function createCardEvent(db, wrestlerId, seasonId, { answers = {}, 
   }
   // First variant on display; album + My Wrestler share ONE record.
   db.onDisplay[wrestlerId] = { wrestler_id: wrestlerId, card_id: variants[0].id, updated_at: new Date().toISOString() };
-  audit(db, { actor, action: 'card.created', payload: { wrestlerId, seasonId, variants: variants.map((v) => v.id), heroMix } });
+  audit(db, { actor, action: 'card.created', payload: { wrestlerId, seasonId, creation, variants: variants.map((v) => v.id), heroMix } });
   return variants;
 }
 
@@ -357,6 +362,8 @@ export async function createCardEvent(db, wrestlerId, seasonId, { answers = {}, 
 // lock (it counts edition 'standard' only) never sees; it never touches the
 // on-display record, so a real account's season-locked card is never
 // overwritten; and it audit-logs as card.demo-regenerated, never card.created.
+// One call keeps a full variant set (same answers, presets + parameters
+// varied), and one season allows exactly one regeneration — no re-rolls.
 // It runs ONLY the live Meta path: mock/placeholder art is refused loudly and
 // is never labeled generated.
 export const DEMO_REGEN_EDITION = 'demo-regen';
@@ -370,6 +377,13 @@ export async function demoRegenerateCard(db, wrestlerId, seasonId, { answers = {
     err.status = 403;
     throw err;
   }
+  const prior = Object.values(db.cards).filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId && c.edition === DEMO_REGEN_EDITION);
+  if (prior.length) {
+    const err = new Error('Demo regeneration already used for this season — the kept variants are in the album. No re-rolls; the season creation count is unchanged.');
+    err.code = 'DEMO_REGEN_USED';
+    err.status = 400;
+    throw err;
+  }
   const provider = artProvider || new MetaCardArtProvider(env);
   if (provider.isMock) {
     const err = new Error('Live art is off: demo regeneration needs the real Meta path (USE_REAL_META_AI=true with a Meta API key in the environment). Nothing was made — a placeholder is never labeled generated.');
@@ -378,39 +392,47 @@ export async function demoRegenerateCard(db, wrestlerId, seasonId, { answers = {
     throw err;
   }
   const heroes = HERO_SETS[heroMix] || HERO_SETS.mixed;
-  const prompt = buildArtPrompt({ answers, hero: heroes[0] });
-  let made;
+  const made = [];
   try {
-    made = await provider.generateArt({ prompt });
+    for (let i = 0; i < CARD_VARIANTS; i++) {
+      // Mystery default: each variant draws its own preset, so the kept set
+      // visibly differs by preset — plus hero and scene word per variant.
+      const pid = pickPreset(answers.preset || answers.style || 'mystery');
+      const word = VARIANT_WORDS[i % VARIANT_WORDS.length];
+      const prompt = buildArtPrompt({ answers, hero: heroes[i % heroes.length], preset: pid, variantWord: word });
+      const one = await provider.generateArt({ prompt });
+      if (!one || one.isMock) throw new Error('Live art came back as a placeholder.');
+      made.push({ ...one, pid, word });
+    }
   } catch (err) {
     const friendly = new Error(describeMetaFailure(err));
     friendly.code = 'DEMO_LIVE_FAILED';
     friendly.cause = err;
     throw friendly;
   }
-  if (!made || made.isMock) {
-    const err = new Error('Live art came back as a placeholder — nothing was saved, and a placeholder is never labeled generated.');
-    err.code = 'DEMO_LIVE_FAILED';
-    throw err;
-  }
-  const id = newId();
   const now = new Date().toISOString();
-  db.cards[id] = {
-    id, wrestler_id: wrestlerId, season_id: seasonId, variant_index: 0,
-    edition: DEMO_REGEN_EDITION,
-    generatedLabel: DEMO_REGEN_LABEL, generatedAt: now,
-    template: {
-      layout: answers.layout || 'classic', theme: answers.style || 'classic',
-      border: 'foil', name: w.name || 'Wrestler',
-      moves: answers.moves || ['Snapdown', 'Stand-up', 'Half Nelson'],
-      flavorLine: 'Demo regeneration — a demo extra. Does not count as the season creation.',
-    },
-    art: made.art, artProvider: made.provider, artIsMock: false,
-    created_at: now,
-  };
-  // On-display record deliberately untouched: the season-locked card stays put.
-  audit(db, { actor, action: 'card.demo-regenerated', payload: { wrestlerId, seasonId, cardId: id, heroMix, demoOnly: true } });
-  return db.cards[id];
+  const cards = made.map(({ art, provider: prov, pid, word }, i) => {
+    const id = newId();
+    db.cards[id] = {
+      id, wrestler_id: wrestlerId, season_id: seasonId, variant_index: i,
+      edition: DEMO_REGEN_EDITION,
+      generatedLabel: DEMO_REGEN_LABEL, generatedAt: now,
+      template: {
+        layout: answers.layout || 'classic', theme: pid, presetName: CARD_PRESETS[pid].name, variantWord: word,
+        border: 'foil', name: w.name || 'Wrestler',
+        moves: answers.moves || ['Snapdown', 'Stand-up', 'Half Nelson'],
+        flavorLine: 'Demo regeneration — a demo extra. Does not count as the season creation.',
+      },
+      art, artProvider: prov, artIsMock: false,
+      created_at: now,
+    };
+    return db.cards[id];
+  });
+  // On-display record deliberately untouched: exactly ONE card stays on
+  // display and the season-locked card is never overwritten. All variants
+  // are kept — none are discarded.
+  audit(db, { actor, action: 'card.demo-regenerated', payload: { wrestlerId, seasonId, cardIds: cards.map((c) => c.id), heroMix, demoOnly: true } });
+  return cards;
 }
 
 export function setOnDisplay(db, wrestlerId, cardId, { actor = 'guardian' } = {}) {
@@ -430,16 +452,21 @@ export function isFinalizedResult(m) {
 }
 
 // Single source for the season-lock button state: the server lock, the album
-// payload, and the client CREATE area all read this shape. Standard editions
-// only — demo regenerations, photos, and milestones never count as creations.
-export const SEASON_LOCK_MESSAGE = 'Season creation used — next season or a paid change can create a new card';
+// payload, and the client CREATE area all read this shape. Four creation
+// generations per season, each keeping its variants; then locked until a new
+// season. Standard editions only — demo regenerations, photos, and milestones
+// never count as creations. No purchase path exists: the season allowance is
+// the whole rule. Legacy cards without a creation stamp count as creation 1.
+export const SEASON_CREATION_LIMIT = 4;
+export const SEASON_LOCK_MESSAGE = 'Season creations used (4 of 4) — a new season starts a fresh set';
 export function seasonCreationState(db, wrestlerId, seasonId) {
-  const used = Object.values(db.cards)
-    .filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId && c.edition === 'standard').length;
-  const locked = used > 0;
+  const used = new Set(Object.values(db.cards)
+    .filter((c) => c.wrestler_id === wrestlerId && c.season_id === seasonId && c.edition === 'standard')
+    .map((c) => c.creation || 1)).size;
+  const locked = used >= SEASON_CREATION_LIMIT;
   return {
-    used: locked ? 1 : 0, remaining: locked ? 0 : 1, locked,
-    message: locked ? SEASON_LOCK_MESSAGE : `Season ${seasonId}: 1 creation available.`,
+    used, remaining: SEASON_CREATION_LIMIT - used, locked,
+    message: locked ? SEASON_LOCK_MESSAGE : `Season ${seasonId}: ${SEASON_CREATION_LIMIT - used} of ${SEASON_CREATION_LIMIT} creations available.`,
   };
 }
 

@@ -60,6 +60,13 @@ export function baseUrl(env = process.env) {
   return (env[META_ENV.base] || META_DOCS.base).replace(/\/$/, '');
 }
 
+/** Full request URL. Paths are base-relative: the base already ends in /v1,
+ *  so call sites pass '/images/generations', never '/v1/...' — a doubled
+ *  /v1/v1/... path 404s on the live API. */
+export function metaUrl(env = process.env, path) {
+  return `${baseUrl(env)}${path}`;
+}
+
 export function apiKey(env = process.env) {
   return env[META_ENV.key] || env[META_ENV.altKey] || null;
 }
@@ -113,7 +120,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function metaPost(env, path, body) {
   const check = checkRealConfig(env);
   if (!check.ok) throw loudError(check);
-  const send = () => fetch(`${baseUrl(env)}${path}`, {
+  const send = () => fetch(metaUrl(env, path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey(env)}` },
     body: JSON.stringify(body),
@@ -128,22 +135,64 @@ async function metaPost(env, path, body) {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Meta Model API ${path} failed (${res.status}): ${text.slice(0, 300)}`);
+    const model = body && body.model ? body.model : 'n/a';
+    throw new Error(`Meta Model API POST ${metaUrl(env, path)} (model ${model}) failed (${res.status}): ${text.slice(0, 300)}`);
   }
   return res.json();
 }
 
 // ---------- Card art: template renders text, model renders ART ONLY ----------
-export function buildArtPrompt({ answers, hero }) {
+// Named card presets. Each preset is a DISTINCT art-layer prompt set — pose,
+// background, palette, finish, and energy — never a border-colour swap. One
+// table drives Parent CREATE and Demo Regenerate; the questionnaire maps
+// answers onto these ids, and 'mystery' resolves to a random preset per
+// variant (never a fixed rotation).
+export const CARD_PRESETS = {
+  classic: { name: 'Classic', pose: 'heroic championship pose, standing tall with arms raised', background: 'bright arena light, clean stadium crowd', palette: 'bold primary sports colors', finish: 'clean matte sports-card finish', energy: 'proud heroic energy' },
+  'shiny-glittery': { name: 'Shiny Glittery', pose: 'joyful victory pose, confetti in the air', background: 'sparkling celebration stage, bright lights', palette: 'bright celebratory pastels with gold', finish: 'foil sparkle holographic finish', energy: 'bright celebratory energy' },
+  fire: { name: 'Fire', pose: 'fierce lunging pose, fists forward', background: 'roaring flame background, drifting embers', palette: 'warm palette: red, orange, gold', finish: 'molten foil finish', energy: 'fierce fiery energy' },
+  ice: { name: 'Ice', pose: 'sharp crystalline stance, one arm extended', background: 'frost background, glittering ice crystals', palette: 'cool palette: ice blue, white, silver', finish: 'frosted foil finish', energy: 'calm razor-sharp energy' },
+  lightning: { name: 'Lightning', pose: 'dynamic mid-action sprint pose', background: 'storm background, crackling lightning bolts', palette: 'electric violet, yellow, deep blue', finish: 'charged electric foil finish', energy: 'explosive storm energy' },
+  attack: { name: 'Attack', pose: 'aggressive forward takedown drive pose', background: 'dusty arena mat, speed lines', palette: 'hot red and black', finish: 'high-impact gloss finish', energy: 'aggressive forward energy' },
+  'brick-wall': { name: 'Brick-Wall Defense', pose: 'solid guard stance, arms crossed low, grounded', background: 'ancient stone fortress wall', palette: 'granite gray, bronze, deep green', finish: 'brushed metal finish', energy: 'immovable grounded energy' },
+  'super-silly': { name: 'Super Silly', pose: 'playful goofy pose, tongue out, mid-bounce', background: 'carnival gym, balloons and streamers', palette: 'bright candy palette', finish: 'glossy sticker finish', energy: 'funny bouncy energy' },
+  friendly: { name: 'Friendly', pose: 'warm smiling wave pose', background: 'sunny school gym, cheering bunting', palette: 'warm welcoming yellows and greens', finish: 'soft satin finish', energy: 'kind welcoming energy' },
+  fierce: { name: 'Fierce', pose: 'intense staredown pose, fists clenched', background: 'dark smoky arena, single spotlight', palette: 'bold palette: crimson, black, gold', finish: 'high-contrast gloss finish', energy: 'intense competitive energy' },
+  'a-little-scary': { name: 'A Little Scary', pose: 'dramatic cartoon shadow pose, glowing friendly eyes', background: 'dark arena light, silver moonbeams', palette: 'midnight blue, purple, silver', finish: 'shadow foil finish', energy: 'dramatic spooky-but-friendly energy, always kid-friendly' },
+};
+export const CARD_PRESET_IDS = Object.keys(CARD_PRESETS);
+// Legacy style names (old answers, milestone and seed calls) map onto presets.
+const STYLE_PRESET = {
+  classic: 'classic', shiny: 'shiny-glittery', 'shiny-glittery': 'shiny-glittery',
+  fire: 'fire', ice: 'ice', lightning: 'lightning', photo: 'classic',
+  milestone: 'shiny-glittery', full: 'classic',
+};
+/** Resolve a preset id. 'mystery'/'shuffle' picks randomly per call (the
+ *  caller passes one call per variant); unknown ids fall back to classic.
+ *  `rand` is injectable so tests stay deterministic. */
+export function pickPreset(id, rand = Math.random) {
+  if (id === 'mystery' || id === 'shuffle') return CARD_PRESET_IDS[Math.floor(rand() * CARD_PRESET_IDS.length)];
+  if (CARD_PRESETS[id]) return id;
+  return STYLE_PRESET[String(id || '').toLowerCase()] || 'classic';
+}
+// Per-variant scene-light words so one event's variants differ by parameters
+// even when they share answers and preset.
+export const VARIANT_WORDS = ['sunrise glow', 'crowd roar', 'night lights', 'golden hour'];
+
+export function buildArtPrompt({ answers = {}, hero = 'hero', preset = null, variantWord = '' } = {}) {
+  const pid = pickPreset(preset || answers.preset || answers.style || 'classic');
+  const p = CARD_PRESETS[pid];
   const parts = [
     'Epic youth sports trading-card monster-hero illustration, no text.',
-    `Style: ${answers.style || 'classic'}.`,
-    `Favorite color energy: ${answers.color || 'blue'}.`,
-    `Animal spirit: ${answers.animal || 'tiger'}.`,
+    `Preset ${p.name}: ${p.pose}. ${p.background}. ${p.palette}. ${p.finish}. ${p.energy}.`,
     `Hero: ${hero}.`,
-    `World: ${answers.world || 'arena sky'}. Finish: ${answers.finish || 'foil sparkle'}.`,
-    'STRICT: no text, no letters, no numbers, no words, no logos, no watermarks, no signatures.',
   ];
+  if (answers.color) parts.push(`Favorite color energy: ${answers.color}.`);
+  if (answers.animal) parts.push(`Animal spirit: ${answers.animal}.`);
+  if (answers.world) parts.push(`World: ${answers.world}.`);
+  if (answers.finish) parts.push(`Extra finish note: ${answers.finish}.`);
+  if (variantWord) parts.push(`Scene light: ${variantWord}.`);
+  parts.push('STRICT: no text, no letters, no numbers, no words, no logos, no watermarks, no signatures.');
   return parts.join(' ');
 }
 
@@ -159,8 +208,15 @@ export class MetaCardArtProvider extends CardArtProvider {
     const check = checkRealConfig(this.env);
     if (!check.ok) throw loudError(check);
     const model = modelId('image', this.env);
+    // Slot separation: a text-model ID must never ride the image route. The
+    // image call sends the image slot only (default muse-image-1.0); text IDs
+    // stay on text routes. A crossed slot fails here, naming the exact model.
+    const textIds = [modelId('wonder', this.env), modelId('spark', this.env)];
+    if (textIds.includes(model)) {
+      throw new Error(`Refusing image call: '${model}' is a text model ID and text IDs stay on text routes. Image calls use '${DOC_MODEL_IDS.image}' (slot ${META_ENV.imageModel}). Nothing was made.`);
+    }
     return metaQueue(async () => {
-      const data = await metaPost(this.env, '/v1/images/generations', { model, prompt });
+      const data = await metaPost(this.env, '/images/generations', { model, prompt, n: 1 });
       const url = data?.data?.[0]?.url || data?.data?.[0]?.b64_json;
       if (!url) throw new Error('Meta Image returned no art payload');
       return { art: url, provider: this.label, isMock: false };
@@ -266,7 +322,7 @@ export class MetaWonderProvider extends AiAssistantProvider {
     const check = checkRealConfig(this.env);
     if (!check.ok) throw loudError(check);
     const model = modelId('wonder', this.env);
-    const data = await metaQueue(() => metaPost(this.env, '/v1/chat/completions', {
+    const data = await metaQueue(() => metaPost(this.env, '/chat/completions', {
       model,
       response_format: { type: 'json_object' },
       messages: [
@@ -302,7 +358,7 @@ export class MetaSparkProvider {
     const check = checkRealConfig(this.env);
     if (!check.ok) throw loudError(check);
     const model = modelId('spark', this.env);
-    const data = await metaQueue(() => metaPost(this.env, '/v1/chat/completions', {
+    const data = await metaQueue(() => metaPost(this.env, '/chat/completions', {
       model,
       messages: [
         { role: 'system', content: 'Rewrite these wrestling-tournament facts as one warm plain-language sentence for a parent. Never add advice, never mention scores you were not given.' },
@@ -375,7 +431,7 @@ export async function samCutout(photoDataUrl, env = process.env) {
   // Mask-only; the child's photo pixels are never regenerated.
   const model = modelId('sam', env);
   try {
-    const data = await metaQueue(() => metaPost(env, '/v1/responses', {
+    const data = await metaQueue(() => metaPost(env, '/responses', {
       model,
       input: [{ type: 'message', role: 'user', content: [
         { type: 'input_text', text: 'child' },

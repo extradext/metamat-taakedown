@@ -379,7 +379,7 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-const FINISHES = ['classic', 'shiny', 'fire', 'ice', 'lightning'];
+const FINISHES = ['classic', 'shiny', 'shiny-glittery', 'fire', 'ice', 'lightning', 'attack', 'brick-wall', 'super-silly', 'friendly', 'fierce', 'a-little-scary'];
 function cardTheme(card) {
   const th = card && card.template && card.template.theme;
   return FINISHES.indexOf(th) >= 0 ? th : 'classic';
@@ -400,13 +400,22 @@ function matchupHTML(m, board) {
 }
 const SIL_ART = '<svg class="silart" viewBox="0 0 500 360" aria-hidden="true">'
   + '<defs><linearGradient id="appsilg" x1="0" y1="0" x2="1" y2="1">'
-  + '<stop offset="0" stop-color="#3a4a5c"/><stop offset="1" stop-color="#141a21"/>'
+  + '<stop offset="0" stop-color="#2c3a58"/><stop offset="1" stop-color="#10151c"/>'
+  + '</linearGradient><linearGradient id="appsilbeam" x1="0" y1="0" x2="0" y2="1">'
+  + '<stop offset="0" stop-color="rgba(255,244,214,.28)"/><stop offset="1" stop-color="rgba(255,244,214,0)"/>'
   + '</linearGradient></defs><rect width="500" height="360" fill="url(#appsilg)"/>'
-  + '<ellipse cx="250" cy="330" rx="170" ry="22" fill="rgba(0,0,0,.35)"/>'
-  + '<g stroke="rgba(8,10,14,.94)" stroke-width="34" stroke-linecap="round" fill="none">'
-  + '<path d="M258 148 L232 222 L172 288"/><path d="M258 148 L296 210 L352 236"/>'
-  + '<path d="M258 158 L184 178 L138 150"/><path d="M258 158 L330 172 L372 140"/></g>'
-  + '<circle cx="262" cy="112" r="33" fill="rgba(8,10,14,.94)"/></svg>';
+  + '<polygon points="150,0 205,0 120,360 55,360" fill="url(#appsilbeam)"/>'
+  + '<polygon points="330,0 375,0 430,360 375,360" fill="url(#appsilbeam)"/>'
+  + '<ellipse cx="250" cy="330" rx="175" ry="22" fill="rgba(0,0,0,.4)"/>'
+  + '<ellipse cx="250" cy="330" rx="120" ry="14" fill="none" stroke="rgba(216,169,60,.5)" stroke-width="4"/>'
+  + '<g stroke="#05070b" stroke-linecap="round" fill="none">'
+  + '<path d="M228 252 L186 332" stroke-width="36"/><path d="M272 252 L336 322" stroke-width="36"/>'
+  + '<path d="M202 168 L146 232 L118 292" stroke-width="30"/><path d="M298 168 L344 118 L372 76" stroke-width="30"/></g>'
+  + '<path d="M196 152 Q250 118 304 152 L288 252 Q250 268 212 252 Z" fill="#05070b"/>'
+  + '<path d="M196 152 Q250 118 304 152 L300 168 Q250 138 200 168 Z" fill="rgba(216,169,60,.35)"/>'
+  + '<circle cx="250" cy="92" r="32" fill="#05070b"/>'
+  + '<path d="M222 82 a32 32 0 0 1 56 0" stroke="rgba(216,169,60,.7)" stroke-width="7" fill="none" stroke-linecap="round"/>'
+  + '<path d="M250 64 L250 44 M228 70 L218 52 M272 70 L282 52" stroke="rgba(216,169,60,.7)" stroke-width="5" stroke-linecap="round"/></svg>';
 function cardSource(card) {
   if (!card || !card.art) return 'SAMPLE ART';
   if (card.edition === 'photo' || card.photoSource) return 'PHOTO';
@@ -584,9 +593,12 @@ async function spectator() {
     if (m) return { age: m[1], band: m[2].replace(/\s+/g, '') };
     return { age: String(div || '').split(/\s+/)[0] || 'Open', band: '' };
   };
+  // Same decided-match predicate as the server day totals (status completed
+  // AND a result present — the spectate projection carries it as `outcome`).
+  const decided = (m) => m.status === 'completed' && m.outcome != null;
   const rowStatus = (b) => {
     const ms = b.matches || [];
-    const done = ms.filter((m) => m.status === 'completed').length;
+    const done = ms.filter(decided).length;
     const live = ms.filter((m) => m.live || m.status === 'in-progress').length;
     if (ms.length && done === ms.length) return { t: 'Complete', c: 'done', i: 'result' };
     if (live) return { t: 'Live ' + live, c: 'live', i: 'status' };
@@ -594,7 +606,7 @@ async function spectator() {
     return { t: 'Upcoming', c: 'todo', i: 'clock' };
   };
   const wcount = (b) => new Set((b.matches || []).flatMap((m) => [m.aid, m.bid]).filter(Boolean)).size;
-  const isComplete = blist.length > 0 && blist.every((b) => (b.matches || []).length > 0 && (b.matches || []).every((m) => m.status === 'completed'));
+  const isComplete = blist.length > 0 && blist.every((b) => (b.matches || []).length > 0 && (b.matches || []).every(decided));
   const bracketRow = (b, isPinned) => {
     const st = rowStatus(b);
     // Division + weight band once, in the title — never repeated in the sub.
@@ -817,12 +829,14 @@ async function renderTableLog(mountId, tid, table, name) {
   };
 }
 
-async function tableMode() {
+async function tableMode(resumeName) {
   const body = document.getElementById('orgbody');
   const tid = S.tournamentId || 'demo-tournament';
-  const name = prompt('Clock in — your name or identifier:', S.account.name) || S.account.name;
-  try { await api('/table/clockin', { method: 'POST', body: { tournamentId: tid, table: '1', name } }); }
-  catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
+  const name = resumeName || prompt('Clock in — your name or identifier:', S.account.name) || S.account.name;
+  if (!resumeName) {
+    try { await api('/table/clockin', { method: 'POST', body: { tournamentId: tid, table: '1', name } }); }
+    catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
+  }
   let q;
   try { q = await api('/table/' + tid + '/queue?table=1'); } catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
   if (!q.queue.length) {
@@ -839,6 +853,7 @@ async function tableMode() {
     + '<td><button class="scorebtn green" data-s="green" data-p="1">+1</button> <button class="scorebtn green" data-s="green" data-p="2">+2</button> <button class="scorebtn green" data-s="green" data-p="3">+3</button></td>'
     + '</tr></table><p>Score: <span id="live">0 – 0</span></p>'
     + '<div class="row"><button class="big" id="undo">Undo last point</button><button class="big primary" id="final">Finalize</button></div></div>'
+    + '<div id="finalpanel"></div>'
     + '<div class="panel"><h3>Clocks</h3><div class="row"><div><label>Match (sec)</label><input id="ckc" type="number" min="0"></div>'
     + '<div><label>Blood (sec)</label><input id="ckb" type="number" min="0"></div>'
     + '<div><label>Injury (sec)</label><input id="cki" type="number" min="0"></div></div>'
@@ -866,13 +881,58 @@ async function tableMode() {
       document.getElementById('ckmsg').textContent = 'Clocks saved — they count toward tournament stats at finalize.';
     } catch (e) { document.getElementById('ckmsg').textContent = e.message; }
   };
-  document.getElementById('final').onclick = async () => {
-    const winner = prompt('Winner: RED or GREEN?', 'RED');
-    const outcome = prompt('Outcome (pin/tech-fall/major/decision):', 'decision');
-    try {
-      await api('/table/finalize', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id, winner, outcome } });
-      alert('Match finalized.');
-    } catch (e) { alert(e.message); }
+  // Finalize entirely in-view: pick winner + outcome, confirm, see the result
+  // and advance — or see exactly why it cannot finalize. No blocking
+  // browser dialogs in this flow: when they are suppressed the tap was a
+  // literal no-op with no feedback and the board never advanced.
+  const OUTCOMES = [['decision', 'Decision'], ['pin', 'Pin'], ['tech-fall', 'Tech fall'], ['major', 'Major']];
+  const outcomeLabel = (o) => (OUTCOMES.find(([id]) => id === o) || OUTCOMES[0])[1];
+  let finWinner = 'RED', finOutcome = 'decision';
+  const fpanel = () => document.getElementById('finalpanel');
+  const lockBoard = (on) => {
+    document.getElementById('final').disabled = on;
+    body.querySelectorAll('.scorebtn').forEach((b) => { b.disabled = on; });
+  };
+  document.getElementById('final').onclick = () => {
+    fpanel().innerHTML = '<div class="panel"><h3>Finalize Match ' + esc(m.bout_number ?? '?') + '?</h3>'
+      + '<p>' + esc(tbdName(m.a)) + ' (RED) vs ' + esc(tbdName(m.b)) + ' (GREEN)</p>'
+      + '<label>Winner</label><div class="row"><button class="big" data-win="RED">RED · ' + esc(tbdName(m.a)) + '</button>'
+      + '<button class="big" data-win="GREEN">GREEN · ' + esc(tbdName(m.b)) + '</button></div>'
+      + '<label>Outcome</label><div class="chipline" id="finout">' + OUTCOMES.map(([id, label]) =>
+        '<button class="chip' + (id === finOutcome ? ' on' : '') + '" data-out="' + id + '">' + label + '</button>').join('') + '</div>'
+      + '<div class="row"><button class="big primary" id="fingo">Confirm final</button><button class="big" id="fincancel">Cancel</button></div></div>';
+    const paintWin = () => fpanel().querySelectorAll('[data-win]').forEach((b) => b.classList.toggle('primary', b.dataset.win === finWinner));
+    paintWin();
+    fpanel().querySelectorAll('[data-win]').forEach((b) => b.onclick = () => { finWinner = b.dataset.win; paintWin(); });
+    fpanel().querySelectorAll('[data-out]').forEach((b) => b.onclick = () => {
+      finOutcome = b.dataset.out;
+      fpanel().querySelectorAll('[data-out]').forEach((x) => x.classList.toggle('on', x === b));
+    });
+    document.getElementById('fincancel').onclick = () => { fpanel().innerHTML = ''; };
+    document.getElementById('fingo').onclick = async () => {
+      lockBoard(true);
+      try {
+        const r = await api('/table/finalize', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id, winner: finWinner, outcome: finOutcome } });
+        const s = r.summary || {};
+        const line = (s.winnerSide || finWinner) + ' · ' + esc(s.winnerName || '') + ' — '
+          + outcomeLabel(s.outcome || finOutcome) + ' ' + (s.red ?? '?') + '–' + (s.green ?? '?');
+        let nextHtml = '';
+        try {
+          const nq = await api('/table/' + tid + '/queue?table=1');
+          const nx = (nq.queue || [])[0];
+          nextHtml = nx ? '<p>Next: Match ' + esc(nx.bout_number ?? '?') + ' — ' + esc(tbdName(nx.a)) + ' vs ' + esc(tbdName(nx.b)) + '</p>'
+            + '<div class="row"><button class="big primary" id="finnext">Next match</button></div>'
+            : '<p>Done — no more matches.</p><div class="row"><button class="big" id="finnext">Back to table</button></div>';
+        } catch { nextHtml = '<div class="row"><button class="big" id="finnext">Next match</button></div>'; }
+        fpanel().innerHTML = '<div class="panel"><h3>Match finalized.</h3><p>' + line + '</p>' + nextHtml + '</div>';
+        document.getElementById('finnext').onclick = () => tableMode(name);
+      } catch (e) {
+        lockBoard(false);
+        fpanel().innerHTML = '<div class="panel"><h3>Could not finalize</h3><p>' + esc(e.message) + '</p>'
+          + '<div class="row"><button class="big" id="finretry">Try again</button></div></div>';
+        document.getElementById('finretry').onclick = () => { fpanel().innerHTML = ''; };
+      }
+    };
   };
 }
 
@@ -1350,7 +1410,11 @@ async function about() {
     + '<h2>Architecture / About</h2>'
     + '<p><span class="pill ' + (live ? 'p-done' : 'p-todo') + '">' + (live ? 'LIVE — real Meta API' : 'MOCK — development fallback') + '</span></p>'
     + infoRow('Provider flag', st.flag || 'not configured')
-    + infoRow('Models', st.models ? Object.values(st.models).join(', ') : 'model defaults')
+    + infoRow('Card art model', (st.models && st.models.image) || 'model defaults')
+    + infoRow('Setup model', (st.models && st.models.wonder) || 'model defaults')
+    + infoRow('Explanations model', (st.models && st.models.spark) || 'model defaults')
+    + infoRow('Photo cut-out model', (st.models && st.models.sam) || 'model defaults')
+    + infoRow('Voice model', (st.models && st.models.voice) || 'model defaults')
     + '<p>' + esc(st.note || '') + '</p>'
     + '<p>' + esc(srcline) + '</p>'
     + '<p>Card art: generated image, uploaded photo, or a labeled SAMPLE ART placeholder — check the ribbon on each card.</p>'

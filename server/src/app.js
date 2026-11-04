@@ -11,7 +11,7 @@ import { newTournamentId, createTournamentConfig, freezeConfig, correctConfig, g
 import { newId } from './ids.js';
 import {
   generateDoubleElim, generateSingleElim, generateRoundRobin, resolveWrestler as resolveW,
-  recordResult, readyMatches, restStatus, lastBoutEnd, eligibility, seedingFlags, doubleElimPlacements,
+  recordResult, readyMatches, restStatus, lastBoutEnd, eligibility, seedingFlags, doubleElimPlacements, isDecided,
   singleElimPlacements, roundRobinStandings, maybeCreateReset, poolSplit, poolAdvancers,
 } from './engine.js';
 import {
@@ -283,7 +283,7 @@ export function createApp(db = null) {
       };
     }
     const today = Object.values(db.brackets).filter((b) => b.tournament_id === tid).flatMap((b) => b.structure.matches)
-      .filter((m) => m.status === 'completed' && m.result && (m.result.winnerId === w.id || m.result.loserId === w.id));
+      .filter((m) => isDecided(m) && (m.result.winnerId === w.id || m.result.loserId === w.id));
     const disp = db.onDisplay[w.id];
     const notes = visibleNotes(tid, w.id, authed(req));
     return {
@@ -633,8 +633,9 @@ export function createApp(db = null) {
     const byId = Object.fromEntries(b.structure.matches.map((x) => [x.id, x]));
     const a = resolveW(m.slot_a, byId, b.structure.seeds);
     const c = resolveW(m.slot_b, byId, b.structure.seeds);
-    const winnerId = body.winner === 'GREEN' ? c : a;
-    const loserId = body.winner === 'GREEN' ? a : c;
+    const winnerSide = body.winner === 'GREEN' ? 'GREEN' : 'RED';
+    const winnerId = winnerSide === 'GREEN' ? c : a;
+    const loserId = winnerSide === 'GREEN' ? a : c;
     const live = m.live_score || { red: 0, green: 0 };
     const scored = scoreMatch(db, body.tournamentId, body.bracketId, body.matchId, {
       outcome: body.outcome || 'decision', winnerId, loserId,
@@ -644,7 +645,16 @@ export function createApp(db = null) {
     const t = db.tournaments[body.tournamentId];
     maybeCreateReset(b.structure, { resetEnabled: t.config.values.resetMatchEnabled });
     persist();
-    return { ok: true, result: scored.result };
+    return {
+      ok: true, result: scored.result,
+      summary: {
+        winnerSide,
+        winnerName: db.wrestlers[winnerId]?.name || winnerSide,
+        loserName: db.wrestlers[loserId]?.name || 'TBD',
+        outcome: scored.result.outcome, red: live.red ?? 0, green: live.green ?? 0,
+        bout: m.bout_number ?? null,
+      },
+    };
   });
 
   // ---------- kudos / notes / sharing ----------
@@ -874,8 +884,9 @@ export function createApp(db = null) {
   });
   // Demo-only regeneration: requires the explicit demo flag AND a demo
   // wrestler, so it can never run for a real account's season-locked card.
-  // The op itself mints a 'demo-regen' edition (never counted as a season
-  // creation) via the live Meta path, and logs as card.demo-regenerated.
+  // The op itself mints a kept set of 'demo-regen' editions (never counted
+  // as a season creation) via the live Meta path, and logs as
+  // card.demo-regenerated. One regeneration per season: no re-rolls.
   on('POST', '^/api/studio/demo-regenerate$', async ({ req, body }) => {
     if (!body || body.demo !== true) {
       const e = new Error('Demo regeneration is demo-only — open the Demo session to use it.');
@@ -888,11 +899,11 @@ export function createApp(db = null) {
       e.status = 403; e.code = 'DEMO_ONLY'; throw e;
     }
     const acc = authed(req);
-    const card = await demoRegenerateCard(db, wid, body.seasonId || 'S1', {
+    const cards = await demoRegenerateCard(db, wid, body.seasonId || 'S1', {
       answers: body.answers || {}, heroMix: body.heroMix || 'mixed', actor: acc?.id || 'demo',
     });
     persist();
-    return { card, demoOnly: true };
+    return { cards, card: cards[0], demoOnly: true };
   });
   on('POST', '^/api/studio/display$', async ({ body }) => {
     const card = db.cards[body.cardId];

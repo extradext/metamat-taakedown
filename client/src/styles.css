@@ -207,6 +207,69 @@ table.scores th { font-size: 20px; letter-spacing: 2px; }
     repeating-linear-gradient(100deg, rgba(255,233,77,.14) 0 3px, transparent 3px 14px),
     linear-gradient(115deg, transparent 36%, rgba(255,255,240,.30) 50%, transparent 64%);
 }
+.fin-shiny-glittery { --ring: #ffd6f2; }
+.fin-shiny-glittery .finish {
+  background:
+    repeating-linear-gradient(115deg, rgba(255,255,255,.20) 0 2px, transparent 2px 8px),
+    conic-gradient(from 180deg at 50% 40%, rgba(255,120,220,.25), rgba(255,230,120,.22), rgba(140,255,220,.22), rgba(150,160,255,.25), rgba(255,120,220,.25)),
+    linear-gradient(115deg, transparent 30%, rgba(255,255,255,.40) 50%, transparent 70%);
+}
+.fin-attack { --ring: #ff3b30; }
+.fin-attack .finish {
+  background:
+    linear-gradient(100deg, rgba(255,45,30,.34), transparent 55%),
+    repeating-linear-gradient(100deg, rgba(0,0,0,.22) 0 4px, transparent 4px 12px);
+}
+.fin-brick-wall { --ring: #b08d57; }
+.fin-brick-wall .finish {
+  background:
+    repeating-linear-gradient(0deg, rgba(176,141,87,.20) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.20) 0 3px, transparent 3px 24px),
+    linear-gradient(160deg, rgba(255,255,255,.08), transparent 45%);
+}
+.fin-super-silly { --ring: #ff8fd6; }
+.fin-super-silly .finish {
+  background:
+    radial-gradient(circle at 20% 15%, rgba(255,180,230,.35), transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(140,230,255,.30), transparent 45%),
+    linear-gradient(160deg, rgba(255,255,255,.10), transparent 50%);
+}
+.fin-friendly { --ring: #ffd166; }
+.fin-friendly .finish {
+  background:
+    linear-gradient(to bottom, rgba(255,209,102,.30), transparent 55%),
+    linear-gradient(200deg, rgba(255,255,255,.14), transparent 50%);
+}
+.fin-fierce { --ring: #e63946; }
+.fin-fierce .finish {
+  background:
+    linear-gradient(to top, rgba(180,10,30,.42), transparent 55%),
+    linear-gradient(115deg, transparent 40%, rgba(255,220,200,.22) 52%, transparent 64%);
+}
+.fin-a-little-scary { --ring: #9d8cff; }
+.fin-a-little-scary .finish {
+  background:
+    linear-gradient(to bottom, rgba(20,10,60,.50), transparent 60%),
+    radial-gradient(circle at 80% 12%, rgba(230,230,255,.22), transparent 34%);
+}
+/* Foil: metallic gradient with sheen sweep and texture — never a flat border.
+   Reduced-motion (setting or media query) stills it via the global guards. */
+.fin-shiny .finish, .fin-shiny-glittery .finish { overflow: hidden; }
+.fin-shiny .finish::before, .fin-shiny-glittery .finish::before {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: -30%; width: 34%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.45), transparent);
+  animation: foilsheen 4.5s ease-in-out infinite;
+}
+@keyframes foilsheen { 0%, 55% { transform: translateX(0); } 85%, 100% { transform: translateX(480%); } }
+/* School colours drive the card design (per-card --school vars). */
+.cardface .nameplate { border-bottom: 3px solid var(--school, var(--card-accent)); }
+.cardface .artwin { border-color: var(--school-deep, rgba(255,255,255,.35)); }
+.cardface .heroline { color: var(--school, var(--gold)); }
+/* Regen preview-together strip: every kept variant visible at once. */
+.regenstrip { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.chip.regen { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; }
+.chip.regen img, .chip.regen .albsil { width: 52px; height: 38px; object-fit: cover; border-radius: 6px;
+  border: 1px solid var(--line); display: block; overflow: hidden; }
 
 /* ---- Match view: side-by-side cards. Glow ONLY on a final winner. ---- */
 .matchup { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; margin: 10px 0 4px; }

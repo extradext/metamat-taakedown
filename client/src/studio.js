@@ -1,28 +1,54 @@
 /* studio.js — Spotlight Card Studio (parent sessions only). Creation
    spotlight, NOT the landing page. Opens directly in one tap and follows the
-   selected wrestler. Layered card back-to-front: art or photo filling the
-   frame, a gradient scrim, then the template nameplate and stats on top —
-   the image model never renders text. Card stays stationary; ONE scrollable
-   tray beneath it. Touch gestures plus subtle hover tilt on the preview. */
+   selected wrestler. Template-first card, Pokemon-style: outer foil border,
+   nameplate on top, art composited into the art window inside the border,
+   stats and moves below — the image model renders art ONLY and never text.
+   Card stays stationary; ONE scrollable tray beneath it. Touch gestures plus
+   subtle hover tilt on the preview. */
 window.Studio = (() => {
   const widOf = () => (window.FA && window.FA.wrestlerId) || 'demo';
   const SEASON = 'S1';
-  const USED_MESSAGE = 'Season creation used — next season or a paid change can create a new card';
-  const FINISHES = ['classic', 'shiny', 'fire', 'ice', 'lightning'];
+  // Mirrors the server SEASON_LOCK_MESSAGE single source (allowance only).
+  const USED_MESSAGE = 'Season creations used (4 of 4) — a new season starts a fresh set';
+  // Named card presets (ids must match the server CARD_PRESETS table).
+  // Each one is a distinct art-layer prompt set, never a border-colour swap.
+  const PRESETS = [
+    { id: 'classic', name: 'Classic' },
+    { id: 'shiny-glittery', name: 'Shiny Glittery' },
+    { id: 'fire', name: 'Fire' },
+    { id: 'ice', name: 'Ice' },
+    { id: 'lightning', name: 'Lightning' },
+    { id: 'attack', name: 'Attack' },
+    { id: 'brick-wall', name: 'Brick-Wall Defense' },
+    { id: 'super-silly', name: 'Super Silly' },
+    { id: 'friendly', name: 'Friendly' },
+    { id: 'fierce', name: 'Fierce' },
+    { id: 'a-little-scary', name: 'A Little Scary' },
+    { id: 'mystery', name: 'Mystery (shuffle)' },
+  ];
+  const THEME_IDS = PRESETS.map((p) => p.id).filter((id) => id !== 'mystery');
   const GEN_STEPS = ['Dreaming up your hero…', 'Painting the arena energy…', 'Adding the foil finish…', 'Framing your card…'];
-  // Wrestler silhouette in an action pose, filling the frame. The no-art
+  // Wrestler figure in an action pose, filling the frame: filled torso and
+  // head with headgear, driving legs, arena light behind. The no-art
   // placeholder: always labeled SAMPLE ART, never an empty shape, no text.
   const SIL = '<svg class="silart" viewBox="0 0 500 360" aria-hidden="true">'
     + '<defs><linearGradient id="silg" x1="0" y1="0" x2="1" y2="1">'
-    + '<stop offset="0" stop-color="#3a4a5c"/><stop offset="1" stop-color="#141a21"/>'
+    + '<stop offset="0" stop-color="#2c3a58"/><stop offset="1" stop-color="#10151c"/>'
+    + '</linearGradient><linearGradient id="silbeam" x1="0" y1="0" x2="0" y2="1">'
+    + '<stop offset="0" stop-color="rgba(255,244,214,.28)"/><stop offset="1" stop-color="rgba(255,244,214,0)"/>'
     + '</linearGradient></defs><rect width="500" height="360" fill="url(#silg)"/>'
-    + '<ellipse cx="250" cy="330" rx="170" ry="22" fill="rgba(0,0,0,.35)"/>'
-    + '<g stroke="rgba(8,10,14,.94)" stroke-width="34" stroke-linecap="round" fill="none">'
-    + '<path d="M258 148 L232 222 L172 288"/><path d="M258 148 L296 210 L352 236"/>'
-    + '<path d="M258 158 L184 178 L138 150"/><path d="M258 158 L330 172 L372 140"/></g>'
-    + '<g stroke="rgba(216,169,60,.55)" stroke-width="7" stroke-linecap="round" fill="none">'
-    + '<path d="M266 148 L240 222 L180 288"/><path d="M266 158 L338 172 L380 140"/></g>'
-    + '<circle cx="262" cy="112" r="33" fill="rgba(8,10,14,.94)"/></svg>';
+    + '<polygon points="150,0 205,0 120,360 55,360" fill="url(#silbeam)"/>'
+    + '<polygon points="330,0 375,0 430,360 375,360" fill="url(#silbeam)"/>'
+    + '<ellipse cx="250" cy="330" rx="175" ry="22" fill="rgba(0,0,0,.4)"/>'
+    + '<ellipse cx="250" cy="330" rx="120" ry="14" fill="none" stroke="rgba(216,169,60,.5)" stroke-width="4"/>'
+    + '<g stroke="#05070b" stroke-linecap="round" fill="none">'
+    + '<path d="M228 252 L186 332" stroke-width="36"/><path d="M272 252 L336 322" stroke-width="36"/>'
+    + '<path d="M202 168 L146 232 L118 292" stroke-width="30"/><path d="M298 168 L344 118 L372 76" stroke-width="30"/></g>'
+    + '<path d="M196 152 Q250 118 304 152 L288 252 Q250 268 212 252 Z" fill="#05070b"/>'
+    + '<path d="M196 152 Q250 118 304 152 L300 168 Q250 138 200 168 Z" fill="rgba(216,169,60,.35)"/>'
+    + '<circle cx="250" cy="92" r="32" fill="#05070b"/>'
+    + '<path d="M222 82 a32 32 0 0 1 56 0" stroke="rgba(216,169,60,.7)" stroke-width="7" fill="none" stroke-linecap="round"/>'
+    + '<path d="M250 64 L250 44 M228 70 L218 52 M272 70 L282 52" stroke="rgba(216,169,60,.7)" stroke-width="5" stroke-linecap="round"/></svg>';
 
   // Live cache for immediate preview/display updates (no refetch flash).
   let CACHE = { cards: [], onDisplay: null, sections: null, ctx: null, milestones: [] };
@@ -55,7 +81,10 @@ window.Studio = (() => {
   function variantName(c) {
     if (!c) return 'Card';
     if (c.edition === 'photo') return 'Photo';
-    if (c.edition === 'standard' || c.edition === 'demo-regen') return 'Variant ' + ((c.variant_index || 0) + 1);
+    if (c.edition === 'standard' || c.edition === 'demo-regen') {
+      const pn = c.template && c.template.presetName;
+      return 'Variant ' + ((c.variant_index || 0) + 1) + (pn ? ' · ' + pn : '');
+    }
     return String(c.edition || 'Edition');
   }
   function ribbonFor(c) {
@@ -69,6 +98,19 @@ window.Studio = (() => {
     let h = 0;
     for (const c of team) h = (h * 31 + c.charCodeAt(0)) % 997;
     return '<span class="sch sch' + (h % 6) + '">' + esc(team) + '</span>';
+  }
+  // School colours drive the card design (nameplate rule, art-window edge,
+  // accents) via CSS vars — never just a small text chip.
+  function schoolHue(team) {
+    if (!team || team === 'Unattached') return null;
+    let h = 0;
+    for (const c of team) h = (h * 31 + c.charCodeAt(0)) % 997;
+    return (h * 137) % 360;
+  }
+  function schoolStyle(team) {
+    const hue = schoolHue(team);
+    if (hue == null) return '';
+    return ' style="--school:hsl(' + hue + ',72%,58%);--school-deep:hsl(' + hue + ',68%,34%)"';
   }
   // Client-side album grouping fallback (the server sends sections too).
   function groupClient(cards, onDisplayId) {
@@ -105,28 +147,35 @@ window.Studio = (() => {
     const onId = album.onDisplay || null;
     const sections = album.sections || groupClient(cards, onId);
     const serverLock = album.lock;
-    const locked = serverLock ? !!serverLock.locked
-      : cards.some((c) => c.season_id === SEASON && c.edition === 'standard');
+    const usedCount = serverLock ? serverLock.used
+      : new Set(cards.filter((c) => c.season_id === SEASON && c.edition === 'standard').map((c) => c.creation || 1)).size;
+    const locked = serverLock ? !!serverLock.locked : usedCount >= 4;
+    const remaining = serverLock ? serverLock.remaining : Math.max(0, 4 - usedCount);
+    const lockMsg = (serverLock && serverLock.message) || USED_MESSAGE;
     CACHE = { cards, onDisplay: onId, sections, ctx: album.wrestler || null, milestones: album.milestones || [] };
     const shown = (previewId && cards.find((c) => c.id === previewId)) || cards.find((c) => c.id === onId) || cards[0] || null;
     const shownName = (shown && shown.template && shown.template.name) || (CACHE.ctx && CACHE.ctx.name) || 'Your Wrestler';
-    const seasText = locked ? 'Season S1: creation used (1 per season).' : 'Season S1: 1 creation available.';
+    const seasText = locked ? 'Season S1: 4 of 4 creations used.' : 'Season S1: ' + usedCount + ' of 4 creations used — ' + remaining + ' left.';
     // Demo-only regeneration: this button exists ONLY in the Demo session —
     // never Parent, Guest, Organizer, or Table Worker — and the server
-    // additionally requires the demo flag plus a demo wrestler.
+    // additionally requires the demo flag plus a demo wrestler. One season
+    // allows exactly one regeneration: when variants are already kept, the
+    // button shows them instead of offering a re-roll.
     const isDemo = !!(window.FA && window.FA.session === 'demo');
+    const regenKept = cards.filter((c) => c.season_id === SEASON && c.edition === 'demo-regen');
+    const regenArea = !isDemo ? '' : regenKept.length
+      ? '<div class="row"><button class="big" id="demoshow">Demo variants kept (' + regenKept.length + ') — show them</button></div><div id="demomsg"></div>'
+      : '<div class="row"><button class="big" id="demoregen">Demo: Regenerate (demo only — does not count as a season creation)</button></div><div id="demomsg"></div>';
     v.innerHTML = '<section class="studio-live" aria-label="Spotlight Card Studio">'
       + '<div class="cardframe"><div id="livecard"></div><div id="displaybar"></div></div>'
       + '<div class="tray"><div class="trayhead"><span>' + esc(shownName) + '</span><span class="sub">Spotlight Card Studio</span></div>'
       + '<p class="hint" id="seasline">' + esc(seasText) + '</p>'
       + '<div class="row"><button class="big primary" id="create">CREATE</button><button class="big" id="addphoto">ADD PHOTO</button></div>'
-      + '<div id="locknote" class="locknote"' + (locked ? '' : ' hidden') + '>' + esc(USED_MESSAGE) + '</div>'
-      + (isDemo
-        ? '<div class="row"><button class="big" id="demoregen">Demo: Regenerate (demo only — does not count as a season creation)</button></div><div id="demomsg"></div>'
-        : '')
+      + '<div id="locknote" class="locknote"' + (locked ? '' : ' hidden') + '>' + esc(lockMsg) + '</div>'
+      + regenArea
       + '<div id="traybody"></div>'
       + '<h3>Album</h3><div id="album"></div>'
-      + '<p>One creation per season keeps 3–4 variants; ONE is on display; milestone editions unlock only when earned.</p></div>'
+      + '<p>Four creations per season keep 3–4 variants each; ONE is on display; milestone editions unlock only when earned.</p></div>'
       + '</section>';
     renderLiveCard(shown, CACHE.ctx);
     enableTilt(document.querySelector('.cardface'));
@@ -134,20 +183,24 @@ window.Studio = (() => {
     paintDisplayBar(shown && shown.id);
     const createBtn = document.getElementById('create');
     if (locked) {
-      // Root fix for the season contradiction: at 1 used / 0 remaining the
-      // button looks disabled AND says why — and tapping it explains again,
-      // never a silent no-op.
+      // At 4 used / 0 remaining the button looks disabled AND says why —
+      // and tapping it explains again, never a silent no-op.
       createBtn.classList.add('is-disabled');
       createBtn.setAttribute('aria-disabled', 'true');
       createBtn.onclick = () => {
         const note = document.getElementById('locknote');
         note.hidden = false;
-        note.textContent = USED_MESSAGE;
+        note.textContent = lockMsg;
       };
     } else {
       createBtn.onclick = () => questionnaire();
     }
-    if (isDemo) document.getElementById('demoregen').onclick = () => demoRegen();
+    if (isDemo) {
+      const dg = document.getElementById('demoregen');
+      if (dg) dg.onclick = () => demoRegen();
+      const ds = document.getElementById('demoshow');
+      if (ds) ds.onclick = () => regenStrip(regenKept, 'Already regenerated this season — no re-rolls. Your kept variants:');
+    }
     document.getElementById('addphoto').onclick = () => {
       document.getElementById('traybody').innerHTML = '<div class="row"><button class="big" id="up">Upload a photo</button><button class="big" id="take">Take a picture</button></div>'
         + '<p>Guardian consent required. Background cut-out arrives with SAM 3.1 wiring — until then your photo is framed unaltered, never AI-regenerated.</p>';
@@ -156,15 +209,17 @@ window.Studio = (() => {
     };
   }
 
-  // Layered spotlight card: art fills the frame, a gradient scrim sits above
-  // it, and the template nameplate/stats render on top. One type scale: name
-  // largest, weight/division + club next, one hero record line, moves as a
-  // small flavour block with the seeding disclaimer. Never a winner glow —
-  // glow belongs ONLY on a finalized result, never on a studio preview.
+  // Template-first spotlight card, Pokemon-style: outer foil border, ribbon
+  // and nameplate on top, art composited INTO the art window inside the
+  // border (never floating on top), stats and moves below. One type scale:
+  // name largest, weight/division + club next, one hero record line, moves
+  // as a small flavour block with the seeding disclaimer. School colours
+  // drive the design via CSS vars. Never a winner glow — glow belongs ONLY
+  // on a finalized result, never on a studio preview.
   function renderLiveCard(card, ctx) {
     const t = (card && card.template) || { name: (ctx && ctx.name) || 'Your Wrestler', moves: ['Snapdown', 'Stand-up', 'Half Nelson'], flavorLine: 'Card flavour — not wrestling ability. Never used for seeding, ranking, or matching.' };
     const th = (card && card.template && card.template.theme) || 'classic';
-    const fin = FINISHES.indexOf(th) >= 0 ? th : 'classic';
+    const fin = THEME_IDS.indexOf(th) >= 0 ? th : 'classic';
     const art = card && card.art ? '<img alt="Card art" src="' + card.art + '">' : SIL;
     const subBits = [];
     if (ctx && ctx.weight != null) subBits.push(esc(ctx.weight) + ' lb');
@@ -176,14 +231,13 @@ window.Studio = (() => {
       : 'Debut season';
     let flavor = t.flavorLine || '';
     if (!/seeding/i.test(flavor)) flavor += (flavor ? ' ' : '') + 'Never used for seeding, ranking, or matching.';
-    document.getElementById('livecard').innerHTML = '<div class="cardface fin-' + fin + '"><div class="artfill">' + art + '</div>'
-      + '<div class="scrim" aria-hidden="true"></div>'
-      + '<div class="inset cardlayer">'
+    document.getElementById('livecard').innerHTML = '<div class="cardface fin-' + fin + '"' + schoolStyle(ctx && ctx.team) + '>'
+      + '<div class="inset">'
       + '<div class="ribbonrow">' + ribbonFor(card) + '</div>'
       + '<div class="nameplate"><span class="cname">' + esc(t.name) + '</span><span class="ed">' + esc(variantName(card)) + '</span></div>'
+      + '<div class="artwin">' + art + '</div>'
       + (sub ? '<div class="subline">' + sub + '</div>' : '')
       + '<div class="heroline">' + esc(hero) + '</div>'
-      + '<div class="cardpush"></div>'
       + '<div class="moves">' + (t.moves || []).map(esc).join('<br>') + '</div>'
       + '<div class="flavor">' + esc(flavor) + '</div></div><div class="finish" aria-hidden="true"></div></div>';
   }
@@ -285,44 +339,68 @@ window.Studio = (() => {
     }
   }
 
-  // 12 quick questions, about 2 minutes. Everything is one tap.
-  const QSETS = [
+  // Guided tap questions: 2 core questions always (hero vibe, style) plus 4
+  // drawn at random from the pool, shuffled every time — never a fixed
+  // sequence. 2–3 answers each, everything one tap. Presets span cute to
+  // fierce so ages 4 through 9 all find an appealing card.
+  const QSETS_CORE = [
     { key: 'hero', q: 'Your hero is…', a: ['Friendly', 'Fierce', 'A little scary'] },
     { key: 'style', q: 'Your style is…', a: ['Attack', 'Brick-wall defense', 'Super silly'] },
+  ];
+  const QSETS_POOL = [
     { key: 'energy', q: 'Energy?', a: ['Fire', 'Ice', 'Lightning'] },
     { key: 'world', q: 'World?', a: ['Arena sky', 'Volcano', 'Deep sea'] },
     { key: 'finish', q: 'Art vibe?', a: ['Foil sparkle', 'Glitter', 'Matte'] },
     { key: 'buddy', q: 'Buddy?', a: ['Tiger cub', 'Robot', 'Dragon'] },
+    { key: 'sky', q: 'Arena sky?', a: ['Day', 'Sunset', 'Night lights'] },
     { key: 'pose', q: 'Action pose?', a: ['Takedown', 'Victory stand', 'Mat stance'] },
     { key: 'crowd', q: 'Crowd?', a: ['Roaring', 'Friday night', 'Quiet gym'] },
-    { key: 'time', q: 'Arena time?', a: ['Day', 'Sunset', 'Night lights'] },
     { key: 'color', q: 'Power color?', a: ['Blue', 'Red', 'Gold'] },
     { key: 'animal', q: 'Animal spirit?', a: ['Tiger', 'Falcon', 'Bear'] },
     { key: 'frame', q: 'Frame edge?', a: ['Gold', 'Silver', 'Bronze'] },
   ];
+  const QSET_DRAW = 4;
+  function shuffleIn(list) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
   function questionnaire() {
     const b = document.getElementById('traybody');
-    b.innerHTML = '<h4>Make your card</h4><p class="hint">12 quick questions · about 2 minutes. Tap one answer each — or just hit Make my cards.</p>'
-      + '<p class="hint">Card finish</p><div class="chipline" id="finpick">' + FINISHES.map((f) =>
-        '<button class="chip' + (f === 'classic' ? ' on' : '') + '" data-fin="' + f + '">' + f[0].toUpperCase() + f.slice(1) + '</button>').join('') + '</div>'
-      + QSETS.map((s, i) => '<p>' + esc(s.q) + '</p><div class="chipline">' + s.a.map((a) =>
-        '<button class="chip" data-q="' + i + '">' + esc(a) + '</button>').join('') + '</div>').join('')
-      + '<div id="makemsg"></div><div class="row"><button class="big primary" id="make">Make my cards</button></div>';
     const picks = {};
-    let finPick = 'classic';
+    let presetPick = 'classic';
     const liveCard = () => document.querySelector('.studio-live .cardface');
-    b.querySelectorAll('[data-q]').forEach((c) => c.onclick = () => {
-      const i = c.dataset.q;
-      picks[i] = c.textContent;
-      b.querySelectorAll('[data-q="' + i + '"]').forEach((x) => x.classList.toggle('on', x === c));
-    });
-    b.querySelectorAll('[data-fin]').forEach((c) => c.onclick = () => {
-      finPick = c.dataset.fin;
-      b.querySelectorAll('[data-fin]').forEach((x) => x.classList.toggle('on', x === c));
+    const paintFin = (pid) => {
       const live = liveCard();
-      if (live) live.className = live.className.replace(/fin-\w+/g, '').replace(/\s+/g, ' ').trim() + ' fin-' + finPick;
-    });
-    document.getElementById('make').onclick = async (e) => {
+      if (!live) return;
+      const show = pid === 'mystery' ? THEME_IDS[Math.floor(Math.random() * THEME_IDS.length)] : pid;
+      live.className = live.className.replace(/fin-[a-z-]+/g, '').replace(/\s+/g, ' ').trim() + ' fin-' + show;
+    };
+    const render = () => {
+      const sets = shuffleIn([...QSETS_CORE, ...shuffleIn(QSETS_POOL).slice(0, QSET_DRAW)]);
+      b.innerHTML = '<h4>Make your card</h4><p class="hint">6 quick questions · about a minute. Tap one answer each — or just hit Make my cards.</p>'
+        + '<p class="hint">Card preset</p><div class="chipline" id="presetpick">' + PRESETS.map((p) =>
+          '<button class="chip' + (p.id === presetPick ? ' on' : '') + '" data-preset="' + p.id + '">' + esc(p.name) + '</button>').join('') + '</div>'
+        + sets.map((s) => '<p>' + esc(s.q) + '</p><div class="chipline">' + s.a.map((a) =>
+          '<button class="chip' + (picks[s.key] === a ? ' on' : '') + '" data-q="' + s.key + '">' + esc(a) + '</button>').join('') + '</div>').join('')
+        + '<div id="makemsg"></div><div class="row"><button class="big" id="qshuffle">Shuffle questions</button><button class="big primary" id="make">Make my cards</button></div>';
+      b.querySelectorAll('[data-q]').forEach((c) => c.onclick = () => {
+        const k = c.dataset.q;
+        picks[k] = c.textContent;
+        b.querySelectorAll('[data-q="' + k + '"]').forEach((x) => x.classList.toggle('on', x === c));
+      });
+      b.querySelectorAll('[data-preset]').forEach((c) => c.onclick = () => {
+        presetPick = c.dataset.preset;
+        b.querySelectorAll('[data-preset]').forEach((x) => x.classList.toggle('on', x === c));
+        paintFin(presetPick);
+      });
+      document.getElementById('qshuffle').onclick = () => render();
+      document.getElementById('make').onclick = make;
+    };
+    const make = async (e) => {
       const btn = e.target;
       const msg = document.getElementById('makemsg');
       btn.disabled = true; btn.textContent = 'Making…';
@@ -334,13 +412,10 @@ window.Studio = (() => {
         if (s) s.textContent = GEN_STEPS[step];
       }, 900);
       try {
-        const val = (key, fb) => {
-          const i = QSETS.findIndex((s) => s.key === key);
-          return picks[i] || fb;
-        };
         const answers = {
-          color: val('color', 'blue'), animal: val('animal', 'tiger'), style: finPick,
-          world: val('world', 'arena sky'), finish: val('finish', 'foil sparkle'), picks,
+          preset: presetPick,
+          color: picks.color || 'blue', animal: picks.animal || 'tiger',
+          world: picks.world || 'arena sky', finish: picks.finish || 'foil sparkle', picks,
         };
         const body = { answers };
         if (widOf() !== 'demo') body.wrestlerId = widOf();
@@ -363,32 +438,56 @@ window.Studio = (() => {
         document.getElementById('retry').onclick = () => questionnaire();
       }
     };
+    render();
   }
 
-  // Demo-only regeneration: runs the live Meta path for a demo wrestler.
-  // The server mints a GENERATED card that never counts as the season
-  // creation. Failures show the server's exact plain-words reason — a
-  // placeholder is never presented as generated.
+  // Demo-only regeneration: runs the live Meta path for a demo wrestler and
+  // keeps a full GENERATED variant set that never counts as the season
+  // creation. One season allows exactly one regeneration — kept variants are
+  // shown instead of re-rolling. Failures show the server's exact
+  // plain-words reason — a placeholder is never presented as generated.
   async function demoRegen() {
     const msg = document.getElementById('demomsg');
     const btn = document.getElementById('demoregen');
-    btn.disabled = true; btn.textContent = 'Regenerating…';
-    msg.innerHTML = '';
     try {
-      const body = { demo: true, seasonId: 'S1' };
+      const alb = await getJSON('/api/studio/album?wrestlerId=' + encodeURIComponent(widOf()) + '&seasonId=' + SEASON);
+      const kept = (alb.cards || []).filter((c) => c.season_id === SEASON && c.edition === 'demo-regen');
+      if (kept.length) {
+        regenStrip(kept, 'Already regenerated this season — no re-rolls. Your kept variants:');
+        return;
+      }
+    } catch { /* offline: fall through; the server enforces the cap */ }
+    btn.disabled = true; btn.textContent = 'Regenerating…';
+    msg.innerHTML = '<p class="genprog" role="status">Generating your card…</p><p class="genstep">' + GEN_STEPS[0] + '</p>';
+    try {
+      const body = { demo: true, seasonId: 'S1', answers: { preset: 'mystery' } };
       if (widOf() !== 'demo') body.wrestlerId = widOf();
       const r = await fetch('/api/studio/demo-regenerate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Regeneration failed');
-      const done = '<p class="clear">Demo regenerated — GENERATED card for season ' + esc(d.card.season_id)
-        + ', made ' + esc(genDate(d.card.generatedAt)) + '. The season creation count is unchanged.</p>';
+      const cards = d.cards && d.cards.length ? d.cards : [d.card];
+      open._preview = cards[0].id;
       await open();
-      const back = document.getElementById('demomsg');
-      if (back) back.innerHTML = done;
+      regenStrip(cards, 'Demo regenerated — GENERATED set for season ' + cards[0].season_id
+        + ', made ' + genDate(cards[0].generatedAt) + '. All ' + cards.length
+        + ' variants kept; ONE stays on display. The season creation count is unchanged.');
     } catch (err) {
       btn.disabled = false; btn.textContent = 'Demo: Regenerate (demo only — does not count as a season creation)';
       msg.innerHTML = '<p class="studiomsg held">' + esc(err.message) + '</p>';
     }
+  }
+  // Preview-together strip for a kept regen set: every variant visible with
+  // its preset name and honest source label; tapping one spotlights it.
+  // Nothing is discarded.
+  function regenStrip(cards, note) {
+    const msg = document.getElementById('demomsg');
+    if (!msg) return;
+    msg.innerHTML = '<p class="clear">' + esc(note) + '</p>'
+      + '<div class="regenstrip">' + cards.map((c) =>
+        '<button class="chip regen" data-rc="' + c.id + '">'
+        + (c.art ? '<img alt="" src="' + c.art + '">' : '<span class="albsil">' + SIL + '</span>')
+        + '<span>' + esc(variantName(c)) + ' · ' + esc(sourceOf(c)) + '</span></button>').join('') + '</div>';
+    msg.querySelectorAll('[data-rc]').forEach((x) => x.onclick = () => { open._preview = x.dataset.rc; open(); });
   }
 
   function photoFlow(mode) {
