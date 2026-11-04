@@ -1,7 +1,7 @@
 # TEST-REPORT.md — Automated test report
 
 Run: `npm test` (Node.js built-in runner, zero dependencies).
-Last full run: 2026-11-03 — **170 tests, 53 suites, 170 pass, 0 fail** (159 prior + 11 new: 11 named card presets + mystery resolution + prompt layers; image-route model-slot guard + exact URL/model in failures; raw-b64 art wrapped as data URL; questionnaire core/pool/shuffle/preset chips; art-window card + foil finishes + regen strip; demo-regen no-re-roll cap; no-paid-aspect guard).
+Last full run: 2026-11-03 — **178 tests, 56 suites, 178 pass, 0 fail** (170 prior + 8 new: demo-regen survival across seed rebuilds; bulletin pin/author/timestamp/expiry in Parent payloads; sign-in log refresh on sign-in; tables route + multi-table picker with handoff; service-worker hub caching + stale labeling; phone-first responsive contracts).
 
 ## Coverage by spec area
 
@@ -54,6 +54,12 @@ Last full run: 2026-11-03 — **170 tests, 53 suites, 170 pass, 0 fail** (159 pr
   summary, advances to the next match, explains failures (no blocking
   dialogs); day totals share one decided-match predicate, outcome buckets
   provably ≤ completed (fresh seed + post-finalize).
+- **Extras + hardening (Nov 3):** demo-regen art survives seed rebuilds;
+  bulletin meta verified in Parent payloads; Match wording unified
+  (distance counts stay "bouts"); sign-in log refreshes on sign-in;
+  revoked QR/code hide; questionnaire suggests presets from answers;
+  multi-table scoreboard with handoff; packet day-totals block; hub reads
+  cached offline with stale labeling; 390px contracts pinned.
 - **End-to-end smoke** (`server/tests/e2e.local.js`, loopback-only, run
   manually — not part of `npm test`): boot, login ×4 roles, snapshot,
   clock-in, live score, finalize, rest HOLD at finalize, kudos cap + guest

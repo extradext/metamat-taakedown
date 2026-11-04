@@ -250,7 +250,7 @@ window.Studio = (() => {
   }
   function viaText(via) {
     return (via || []).map((e) => (e.won ? 'Won ' : 'Wrestled ')
-      + (e.bout != null ? 'Bout ' + e.bout : e.round || 'a bout')
+      + (e.bout != null ? 'Match ' + e.bout : e.round || 'a match')
       + (e.mat ? ' · Mat ' + e.mat : '')
       + ' · ' + (e.outcome || '')
       + (e.scoreA != null ? ' ' + e.scoreA + '–' + e.scoreB : '')).join('; ');
@@ -270,7 +270,7 @@ window.Studio = (() => {
         + '<div class="hint">' + esc(viaText(m.via) || 'Finalized result') + '</div></div>'
         + (m.cardId ? '<span class="pill p-done">Minted</span>'
           : '<button class="big" data-claim="' + esc(m.milestone) + '">Claim</button>') + '</div>').join('')
-      : '<p class="empty">No milestones earned yet — win a finalized bout to unlock one.</p>';
+      : '<p class="empty">No milestones earned yet — win a finalized match to unlock one.</p>';
     if (secs.milestones.length) msHtml += '<div class="chipline">' + secs.milestones.map((c) => cardChip(c, c.id === CACHE.onDisplay)).join('') + '</div>';
     const retHtml = secs.retired.length ? secs.retired.map((c) => cardChip(c, c.id === CACHE.onDisplay)).join('')
       : '<p class="empty">No retired cards yet — older seasons land here.</p>';
@@ -360,6 +360,13 @@ window.Studio = (() => {
     { key: 'frame', q: 'Frame edge?', a: ['Gold', 'Silver', 'Bronze'] },
   ];
   const QSET_DRAW = 4;
+  // Answers that name a preset suggest it: the last mapping tap wins, and an
+  // explicit preset tap always overrides until the next mapping tap.
+  const SUGGEST = {
+    Friendly: 'friendly', Fierce: 'fierce', 'A little scary': 'a-little-scary',
+    Attack: 'attack', 'Brick-wall defense': 'brick-wall', 'Super silly': 'super-silly',
+    Fire: 'fire', Ice: 'ice', Lightning: 'lightning',
+  };
   function shuffleIn(list) {
     const a = list.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -379,11 +386,17 @@ window.Studio = (() => {
       const show = pid === 'mystery' ? THEME_IDS[Math.floor(Math.random() * THEME_IDS.length)] : pid;
       live.className = live.className.replace(/fin-[a-z-]+/g, '').replace(/\s+/g, ' ').trim() + ' fin-' + show;
     };
+    const setPreset = (pid) => {
+      presetPick = pid;
+      b.querySelectorAll('[data-preset]').forEach((x) => x.classList.toggle('on', x.dataset.preset === pid));
+      paintFin(pid);
+    };
     const render = () => {
       const sets = shuffleIn([...QSETS_CORE, ...shuffleIn(QSETS_POOL).slice(0, QSET_DRAW)]);
       b.innerHTML = '<h4>Make your card</h4><p class="hint">6 quick questions · about a minute. Tap one answer each — or just hit Make my cards.</p>'
         + '<p class="hint">Card preset</p><div class="chipline" id="presetpick">' + PRESETS.map((p) =>
           '<button class="chip' + (p.id === presetPick ? ' on' : '') + '" data-preset="' + p.id + '">' + esc(p.name) + '</button>').join('') + '</div>'
+        + '<p class="hint">Suggestion follows your answers — tap any preset to choose.</p>'
         + sets.map((s) => '<p>' + esc(s.q) + '</p><div class="chipline">' + s.a.map((a) =>
           '<button class="chip' + (picks[s.key] === a ? ' on' : '') + '" data-q="' + s.key + '">' + esc(a) + '</button>').join('') + '</div>').join('')
         + '<div id="makemsg"></div><div class="row"><button class="big" id="qshuffle">Shuffle questions</button><button class="big primary" id="make">Make my cards</button></div>';
@@ -391,12 +404,10 @@ window.Studio = (() => {
         const k = c.dataset.q;
         picks[k] = c.textContent;
         b.querySelectorAll('[data-q="' + k + '"]').forEach((x) => x.classList.toggle('on', x === c));
+        const sug = SUGGEST[c.textContent];
+        if (sug) setPreset(sug);
       });
-      b.querySelectorAll('[data-preset]').forEach((c) => c.onclick = () => {
-        presetPick = c.dataset.preset;
-        b.querySelectorAll('[data-preset]').forEach((x) => x.classList.toggle('on', x === c));
-        paintFin(presetPick);
-      });
+      b.querySelectorAll('[data-preset]').forEach((c) => c.onclick = () => setPreset(c.dataset.preset));
       document.getElementById('qshuffle').onclick = () => render();
       document.getElementById('make').onclick = make;
     };

@@ -173,7 +173,7 @@ export function tableInput(db, tournamentId, bracketId, matchId, input, { actor 
   if (!bracket || bracket.tournament_id !== tournamentId) throw new Error('bracket not found');
   const match = bracket.structure.matches.find((m) => m.id === matchId);
   if (!match) throw new Error('match not found');
-  if (match.status === 'completed') throw new Error('bout is finalized; use the correction workflow');
+  if (match.status === 'completed') throw new Error('match is finalized; use the correction workflow');
   match.status = match.status === 'pending' ? 'in-progress' : match.status;
   match.live_score = {
     red: input.red ?? match.live_score?.red ?? 0,

@@ -412,9 +412,12 @@ describe('album: four labeled sections, always present even when empty', () => {
     for (const s of ['On display', 'Season variants', 'Milestone editions', 'Retired cards']) {
       assert.ok(studioJs.includes(s), `album section "${s}" present`);
     }
-    assert.ok(studioJs.includes('No milestones earned yet — win a finalized bout to unlock one.'));
+    assert.ok(studioJs.includes('No milestones earned yet — win a finalized match to unlock one.'));
     assert.ok(studioJs.includes('6 quick questions'));
     assert.ok(studioJs.includes('Generating your card…'));
+    assert.ok(studioJs.includes('Suggestion follows your answers'));
+    assert.ok(studioJs.includes('SUGGEST[c.textContent]'), 'mapping taps re-suggest the preset');
+    assert.ok(studioJs.includes(`'Brick-wall defense': 'brick-wall'`), 'style answers map to presets');
     assert.ok(studioJs.includes('Set as display'));
   });
 });
@@ -855,6 +858,26 @@ describe('PART 3 (a): bulletin one source rendered same everywhere', () => {
     assert.ok(p3appJs.includes('if (e.pinned) bits.push(\'Pinned\')'), 'Pin marker shown');
     assert.ok(p3appJs.includes('const clears = clearsAfter(e)'), 'clears-after wording shown');
   });
+  it('organizer post lands in Parent payloads with pin, author, timestamp, expiry (live routes)', async () => {
+    const { dispatch, auth } = demoApp();
+    const H = auth('acc-organizer');
+    const exp = new Date(Date.now() + 6 * 3600000).toISOString();
+    await dispatch('POST', '/api/tournaments/demo-tournament/bulletin', {
+      headers: H, body: { text: '[Alert] Meta check', pinned: true, expires: exp },
+    });
+    for (const [name, res] of [
+      ['spectate', await dispatch('GET', '/api/public/demo-tournament/spectate')],
+      ['info', await dispatch('GET', '/api/tournaments/demo-tournament/info')],
+    ]) {
+      const bull = res.bulletin;
+      const hit = bull.find((e) => typeof e === 'object' && e.text.includes('Meta check'));
+      assert.ok(hit, `${name} carries the post`);
+      assert.equal(hit.pinned, true, `${name} pin marker`);
+      assert.ok(hit.author, `${name} author`);
+      assert.ok(hit.at, `${name} timestamp`);
+      assert.equal(hit.expires, exp, `${name} expiry`);
+    }
+  });
   it('packet carries the bulletin sections, generation time, and version (live routes)', async () => {
     const { dispatch } = demoApp();
     const html = (await dispatch('GET', '/api/packet/demo-tournament')).__html;
@@ -863,6 +886,9 @@ describe('PART 3 (a): bulletin one source rendered same everywhere', () => {
     }
     assert.match(html, /Generated .*demo data v4/, 'generation time + demo version');
     assert.ok(html.includes('Park in the north lot'), 'seeded bulletin content present');
+    assert.ok(html.includes('<h2>Day totals</h2>'), 'day totals section present');
+    assert.ok(html.includes('Matches wrestled 24 of 76 · Pins 4 · Tech falls 3 · Majors 6 · Decisions 11'),
+      'day totals match the hub stats source');
   });
 });
 
@@ -944,6 +970,7 @@ describe('PART 3 (c): family sharing demonstrable after Create', () => {
     assert.ok(notes.includes('Expires:'), 'expiry shown');
     assert.ok(notes.includes('id="sharecopy"'), 'Copy control');
     assert.ok(notes.includes('/sharing/revoke'), 'Revoke control');
+    assert.ok(notes.includes('so they are hidden'), 'revoked QR/code hide with the note');
   });
 });
 
@@ -1022,15 +1049,21 @@ describe('PART 3 (f): table sign-in log, Match wording, named undo', () => {
     assert.ok(p3appJs.includes('handoff to'), 'handoff visible');
   });
   it('a contest is a Match everywhere; distance counts stay "bouts" (static)', () => {
-    for (const s of ['Table 1 · Match ', 'Match finalized.', 'No matches assigned',
+    for (const s of [`Table ' + esc(tbl) + ' · Match '`, 'Match finalized.', 'No matches assigned',
       'Done — no more matches.', 'No matches yet today.', 'Rest between matches',
       'LAST MATCH', 'last match ended', 'Undo last point']) {
       assert.ok(p3appJs.includes(s), `client says "${s}"`);
     }
     for (const s of ['LAST BOUT', '>UNDO<', 'Bout finalized.', 'No bouts assigned',
-      'Done — no more bouts.', 'Rest between bouts', 'Table 1 · Bout ']) {
+      'Done — no more bouts.', 'Rest between bouts', 'Table 1 · Bout ', 'min between bouts']) {
       assert.ok(!p3appJs.includes(s), `client no longer says "${s}"`);
     }
+    const studioJs = readFileSync(new URL('../../client/src/studio.js', import.meta.url), 'utf8');
+    for (const s of [`'Bout '`, `'a bout'`, 'finalized bout']) {
+      assert.ok(!studioJs.includes(s), `studio no longer says "${s}"`);
+    }
+    assert.ok(studioJs.includes('win a finalized match'), 'studio milestone copy uses Match');
+    assert.ok(p3indexHtml.includes('placeholder="Search wrestlers, matches, clubs, brackets"'), 'search placeholder uses matches');
     assert.ok(p3appJs.includes('bouts away'), 'distance count "bouts away" stays');
     assert.ok(p3appJs.includes('bouts apart'), 'distance count "bouts apart" stays');
     assert.ok(p3srvJs.includes('· Match ${m.bout_number}'), 'spectator labels use Match');
@@ -1043,6 +1076,22 @@ describe('PART 3 (f): table sign-in log, Match wording, named undo', () => {
     for (const s of ['Match finalized.', 'Could not finalize', 'Next match', 'Confirm final', 'data-win=', 'data-out=']) {
       assert.ok(fin.includes(s), `finalize flow shows "${s}"`);
     }
+  });
+  it('sign-in log refreshes the moment a sign-in exists, in its own panel (static)', () => {
+    const tm = p3section('async function tableMode', '/* ---------------- Tournament setup');
+    assert.ok(tm.includes('<div id="tboardlog"></div>'), 'board log has its own mount');
+    assert.ok(tm.includes(`renderTableLog('tboardlog'`), 'board paints its own log');
+    const clockIdx = tm.indexOf('/table/clockin');
+    const refreshIdx = tm.indexOf(`renderTableLog('tlog'`);
+    assert.ok(clockIdx >= 0 && refreshIdx > clockIdx, 'landing log refreshes after sign-in');
+  });
+  it('scoreboard picks any table in play and hands off on switch (static)', () => {
+    const tm = p3section('async function tableMode', '/* ---------------- Tournament setup');
+    assert.ok(tm.includes("'/table/' + tid + '/tables'"), 'tables come from the server');
+    assert.ok(tm.includes('data-table='), 'table picker chips present');
+    assert.ok(tm.includes("'/table/' + tid + '/queue?table=' + encodeURIComponent(tbl)"), 'queue follows the picked table');
+    assert.ok(tm.includes("'/table/clockout'"), 'switching tables clocks out first (handoff)');
+    assert.ok(tm.includes('tableMode(name, tbl)'), 'finalize advances on the same table');
   });
   it('scoreboard undo names the play it takes back (static)', () => {
     const tm = p3section('async function tableMode', '/* ---------------- Tournament setup');
@@ -1147,6 +1196,16 @@ describe('PART 3 (live routes): notes save, sharing lifecycle, table score/final
         body: { tournamentId: 'demo-tournament', bracketId: m0.bracket_id, matchId: m0.match_id, winner: 'GREEN', outcome: 'pin' },
       }),
       /already completed; use the correction workflow/);
+  });
+  it('tables route lists distinct mat prefixes; each table queues its own matches (live routes)', async () => {
+    const { dispatch, auth } = demoApp();
+    const { tables } = await dispatch('GET', '/api/table/demo-tournament/tables', { headers: auth('acc-table1') });
+    assert.deepEqual(tables, ['1', '2', '3']);
+    for (const t of tables) {
+      const q = await dispatch('GET', '/api/table/demo-tournament/queue', { headers: auth('acc-table1'), query: qp({ table: t }) });
+      assert.ok(q.queue.length > 0, `table ${t} has queued matches`);
+      assert.ok(q.queue.every((m) => String(m.mat).startsWith(t)), `table ${t} queue matches its mats`);
+    }
   });
 });
 
@@ -1273,5 +1332,51 @@ describe('studio flow: guided questions, presets, art-window card (static)', () 
     assert.ok(studioJs.includes('regenStrip'), 'preview-together strip present');
     assert.ok(studioJs.includes('no re-rolls'), 'no re-roll wording present');
     assert.ok(studioJs.includes('presetName'), 'variant preset names shown');
+  });
+});
+
+describe('seed rebuild: live demo-regen art survives a version-bump purge', () => {
+  it('kept cards, owner wrestler, and display record persist across rebuild', async () => {
+    const db = buildDemo(blank());
+    const w = Object.values(db.wrestlers).find((x) => x.is_demo);
+    const stub = {
+      isMock: false, label: 'meta:t',
+      generateArt: async () => ({ art: 'data:image/png;base64,KEPT', provider: 'meta:t', isMock: false }),
+    };
+    const kept = await demoRegenerateCard(db, w.id, 'S1', { artProvider: stub });
+    db.tournaments['demo-tournament'].demoVersion = 3; // force stale
+    buildDemo(db); // purge + rebuild in place
+    assert.equal(db.tournaments['demo-tournament'].demoVersion, 4);
+    for (const c of kept) {
+      assert.ok(db.cards[c.id], 'regen card survives');
+      assert.equal(db.cards[c.id].art, 'data:image/png;base64,KEPT');
+    }
+    assert.ok(db.wrestlers[w.id], 'owner wrestler survives');
+  });
+});
+
+describe('offline: service worker caches hub reads and labels stale', () => {
+  it('sw caches tournament info/stats GETs and tags fallback responses (static)', () => {
+    const sw = readFileSync(new URL('../../client/src/sw.js', import.meta.url), 'utf8');
+    assert.ok(sw.includes('/api/tournaments/'), 'hub endpoints cached');
+    assert.ok(sw.includes("e.request.method !== 'GET'"), 'reads only');
+    assert.ok(sw.includes('X-Arena-Stale'), 'stale fallback tagged');
+  });
+  it('app footer shows the stale line on tagged responses (static)', () => {
+    assert.ok(p3appJs.includes("res.headers.get('X-Arena-Stale')"), 'stale header flips the sync banner');
+  });
+});
+
+describe('responsive: phone-first contracts hold at 390px (static)', () => {
+  it('fluid view, wrap-everywhere rows, capped card, intentional bracket scroll only', () => {
+    const css = readFileSync(new URL('../../client/src/styles.css', import.meta.url), 'utf8');
+    for (const [s, why] of [
+      ['#view { padding: 14px 12px 8px; max-width: 860px; margin: 0 auto; width: 100%; }', 'fluid view column'],
+      ['.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }', 'rows wrap'],
+      ['.chipline { display: flex; gap: 8px; flex-wrap: wrap;', 'chip rows wrap'],
+      ['.cardframe { width: min(78vw, 300px);', 'card fits phone width'],
+      ['.brk-scroll { overflow-x: auto;', 'bracket diagrams scroll inside their container'],
+      ['position: fixed; left: 0; right: 0; bottom: 0;', 'bottom nav pinned on phone'],
+    ]) assert.ok(css.includes(s), why);
   });
 });

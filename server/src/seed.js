@@ -74,14 +74,27 @@ function refreshDemoClock(db) {
 
 function purgeDemo(db) {
   const demoW = new Set(Object.values(db.wrestlers).filter((w) => w.is_demo).map((w) => w.id));
+  // Live demo-regenerated art survives the purge: those cards, their owner
+  // wrestlers, display records, links, notes, and kudos stay. Registrations
+  // and brackets still rebuild — kept wrestlers are album owners first.
+  const keptW = new Set(Object.values(db.cards)
+    .filter((c) => c.edition === 'demo-regen' && demoW.has(c.wrestler_id)).map((c) => c.wrestler_id));
   delete db.tournaments[TID];
   for (const [id, b] of Object.entries(db.brackets)) if (b.tournament_id === TID) delete db.brackets[id];
   for (const [k, r] of Object.entries(db.registrations)) if (r.tournament_id === TID) delete db.registrations[k];
-  for (const [id, n] of Object.entries(db.notes)) if (n.tournament_id === TID || demoW.has(n.wrestler_id)) delete db.notes[id];
-  for (const [id, c] of Object.entries(db.cards)) if (demoW.has(c.wrestler_id)) delete db.cards[id];
-  for (const wid of demoW) { delete db.onDisplay[wid]; delete db.wrestlers[wid]; }
-  for (const [k, l] of Object.entries(db.guardianLinks)) if (demoW.has(l.wrestler_id)) delete db.guardianLinks[k];
-  for (const [id, k] of Object.entries(db.kudos)) if (k.tournament_id === TID || demoW.has(k.wrestler_id)) delete db.kudos[id];
+  for (const [id, n] of Object.entries(db.notes)) {
+    if (n.tournament_id === TID && !keptW.has(n.wrestler_id)) delete db.notes[id];
+    else if (demoW.has(n.wrestler_id) && !keptW.has(n.wrestler_id)) delete db.notes[id];
+  }
+  for (const [id, c] of Object.entries(db.cards)) {
+    if (demoW.has(c.wrestler_id) && !(c.edition === 'demo-regen' && keptW.has(c.wrestler_id))) delete db.cards[id];
+  }
+  for (const wid of demoW) { if (keptW.has(wid)) continue; delete db.onDisplay[wid]; delete db.wrestlers[wid]; }
+  for (const [k, l] of Object.entries(db.guardianLinks)) if (demoW.has(l.wrestler_id) && !keptW.has(l.wrestler_id)) delete db.guardianLinks[k];
+  for (const [id, k] of Object.entries(db.kudos)) {
+    if (k.tournament_id === TID && !keptW.has(k.wrestler_id)) delete db.kudos[id];
+    else if (demoW.has(k.wrestler_id) && !keptW.has(k.wrestler_id)) delete db.kudos[id];
+  }
   for (const [id, e] of Object.entries(db.matchEvents)) if (e.tournament_id === TID) delete db.matchEvents[id];
   db.historical = [];
 }

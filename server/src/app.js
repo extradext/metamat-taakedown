@@ -597,6 +597,17 @@ export function createApp(db = null) {
       });
     return { queue };
   });
+  // Tables in play: distinct mat prefixes with matches (queue groups by
+  // prefix, so '1' covers split surfaces 1A/1B). Drives the picker.
+  on('GET', '^/api/table/([^/]+)/tables$', async ({ match }) => {
+    const tid = match[1];
+    if (!db.tournaments[tid]) throw new Error('tournament not found');
+    const mats = Object.values(db.brackets).filter((b) => b.tournament_id === tid)
+      .flatMap((b) => b.structure.matches.map((m) => m.mat)).filter(Boolean);
+    const tables = [...new Set(mats.map((mat) => String(mat).match(/^\d+/)?.[0] || String(mat)))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return { tables: tables.length ? tables : ['1'] };
+  });
   on('POST', '^/api/table/score$', async ({ req, body }) => {
     const acc = need(req, 'organizer', 'table');
     const live = tableInput(db, body.tournamentId, body.bracketId, body.matchId, {
@@ -1043,6 +1054,10 @@ export function createApp(db = null) {
     const bullHtml = bullSecs.map(([sec, items]) =>
       `<h3>${escH(sec)}</h3>` + items.map((x) => `<p>${escH(x.text)}${bullMeta(x)}</p>`).join('')).join('') || '<p>No announcements.</p>';
     const genLine = `Generated ${new Date().toLocaleString()} · ${t.demoVersion ? 'demo data v' + t.demoVersion : 'settings v' + (t.config_version ?? 1)}`;
+    // Day totals from the same stats source as the hub — the paper fallback
+    // shows the same numbers as the screen.
+    const totals = tournamentStats(db, tid);
+    const totalsHtml = `<h2>Day totals</h2><p>Matches wrestled ${totals.matchesWrestled} of ${totals.matchesTotal} · Pins ${totals.pins} · Tech falls ${totals.techFalls} · Majors ${totals.majors} · Decisions ${totals.decisions}</p>`;
     const payload = JSON.stringify({ tournament: t.name, day, sheets: sheetData }).replace(/</g, '\\u003c');
     const logoMark = `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#0b1220" stroke="#d8a93c" stroke-width="3"/><path d="M24 10 L36 14 V24 C36 32 30 37 24 39 C18 37 12 32 12 24 V14 Z" fill="none" stroke="#d8a93c" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="23" r="5" fill="none" stroke="#f5f7fa" stroke-width="2.5"/></svg>`;
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Emergency packet — ${escH(t.name)}</title>`
@@ -1055,6 +1070,7 @@ export function createApp(db = null) {
       + `<h1>Emergency packet — ${escH(t.name)}${demoTag}</h1>`
       + `<p>Venue: ${escH(t.venue)} · Date: ${escH(day)} · Rules: ${escH(t.config.presetId)} (${escH(t.config.presetStatus)}) · Rest floor: ${t.config.values.restFloorMin} min · Scoring: takedown ${t.config.values.scoring.takedown}${escH(regCut)}</p>`
       + `<h2>Bulletin</h2><p>${escH(genLine)}</p>${bullHtml}`
+      + totalsHtml
       + `<div id="sheets"></div>`
       + `<h2>Mat run-order</h2><table class="runorder"><tr><th>Match</th><th>Mat</th><th>Division</th><th>Round</th><th>Red</th><th>Green</th><th>Result</th></tr>${rows}</table>`
       + `<p>If devices lose power, run on this paper and re-enter results through the exception workflow.</p>`

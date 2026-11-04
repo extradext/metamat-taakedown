@@ -382,7 +382,7 @@ export function buildExplanation(kind, facts = {}) {
   if (kind === 'rest-hold') {
     return {
       kind, facts,
-      text: `HELD on rest: ${facts.name || 'this wrestler'} finished a bout ${facts.restedMin ?? '?'} minutes ago and needs ${facts.restFloorMin ?? '?'} minutes between bouts. Up in about ${facts.needsMin ?? '?'} minutes.`,
+      text: `HELD on rest: ${facts.name || 'this wrestler'} finished a match ${facts.restedMin ?? '?'} minutes ago and needs ${facts.restFloorMin ?? '?'} minutes between matches. Up in about ${facts.needsMin ?? '?'} minutes.`,
     };
   }
   if (kind === 'seeding-flag') {

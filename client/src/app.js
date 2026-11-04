@@ -352,6 +352,7 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  if (res.headers && res.headers.get && res.headers.get('X-Arena-Stale')) stampSync(true);
   if (!res.ok) throw new Error(data.error || ('request failed: ' + path));
   S.cache[path] = { at: Date.now(), data };
   stampSync(false);
@@ -521,7 +522,7 @@ async function myWrestler() {
     ? '<p class="held">' + icon('rest') + ' Rest held — ' + esc(r.message || '') + '</p>'
     : '<p class="clear">' + icon('result') + ' ' + esc(r.message || 'Clear to wrestle.') + '</p>';
   const restRule = r.floorMin != null
-    ? '<p class="hint">Rest rule: ' + esc(r.floorMin) + ' min between bouts'
+    ? '<p class="hint">Rest rule: ' + esc(r.floorMin) + ' min between matches'
       + (r.lastEnd ? ' · last match ended ' + esc(new Date(r.lastEnd).toLocaleTimeString()) : ' · no matches yet today')
       + (heroEst && heroEst.away > 0 ? ' · ' + heroEst.away + ' bouts away' : '') + '.</p>' : '';
   const switcher = mine.length > 1 ? '<div class="panel"><h3>My Wrestlers</h3><div class="chipline" id="kidswitch">'
@@ -829,23 +830,38 @@ async function renderTableLog(mountId, tid, table, name) {
   };
 }
 
-async function tableMode(resumeName) {
+async function tableMode(resumeName, table, freshClockin) {
   const body = document.getElementById('orgbody');
   const tid = S.tournamentId || 'demo-tournament';
+  let tables = ['1'];
+  try { tables = (await api('/table/' + tid + '/tables')).tables || ['1']; } catch { /* offline: table 1 only */ }
+  const tbl = tables.includes(table) ? table : tables[0];
   const name = resumeName || prompt('Clock in — your name or identifier:', S.account.name) || S.account.name;
-  if (!resumeName) {
-    try { await api('/table/clockin', { method: 'POST', body: { tournamentId: tid, table: '1', name } }); }
+  if (!resumeName || freshClockin) {
+    try { await api('/table/clockin', { method: 'POST', body: { tournamentId: tid, table: tbl, name } }); }
     catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
   }
+  const picker = tables.length > 1 ? '<div class="chipline" id="tablepick">' + tables.map((t) =>
+    '<button class="chip' + (t === tbl ? ' on' : '') + '" data-table="' + esc(t) + '">Table ' + esc(t) + '</button>').join('') + '</div>' : '';
+  const wirePicker = () => body.querySelectorAll('[data-table]').forEach((c) => c.onclick = async () => {
+    if (c.dataset.table === tbl) return;
+    try { await api('/table/clockout', { method: 'POST', body: { tournamentId: tid, table: tbl, name } }); }
+    catch { /* not clocked there: just move */ }
+    tableMode(name, c.dataset.table, true);
+  });
+  // The landing view's log would otherwise stay stale: refresh it the moment
+  // this sign-in exists (no-op in Organizer view, where it is absent).
+  if (document.getElementById('tlog')) renderTableLog('tlog', tid, tbl, null);
   let q;
-  try { q = await api('/table/' + tid + '/queue?table=1'); } catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
+  try { q = await api('/table/' + tid + '/queue?table=' + encodeURIComponent(tbl)); } catch (e) { body.innerHTML = '<div class="panel"><p>' + esc(e.message) + '</p></div>'; return; }
   if (!q.queue.length) {
-    body.innerHTML = '<div class="panel"><p>No matches assigned to table 1.</p></div><div id="tlog"></div>';
-    renderTableLog('tlog', tid, '1', name);
+    body.innerHTML = '<div class="panel">' + picker + '<p>No matches assigned to table ' + esc(tbl) + '.</p></div><div id="tboardlog"></div>';
+    wirePicker();
+    renderTableLog('tboardlog', tid, tbl, name);
     return;
   }
   const m = q.queue[0];
-  body.innerHTML = '<div class="panel"><h3>Table 1 · Match ' + esc(m.bout_number ?? '?') + '</h3>'
+  body.innerHTML = '<div class="panel">' + picker + '<h3>Table ' + esc(tbl) + ' · Match ' + esc(m.bout_number ?? '?') + '</h3>'
     + '<p>' + esc(tbdName(m.a)) + ' (RED) vs ' + esc(tbdName(m.b)) + ' (GREEN)</p>'
     + (m.hold ? '<p class="held">' + esc(m.hold) + '</p>' : '')
     + '<table class="scores"><tr><th>RED</th><th>GREEN</th></tr><tr>'
@@ -858,8 +874,9 @@ async function tableMode(resumeName) {
     + '<div><label>Blood (sec)</label><input id="ckb" type="number" min="0"></div>'
     + '<div><label>Injury (sec)</label><input id="cki" type="number" min="0"></div></div>'
     + '<div class="row"><button class="big" id="ckgo">Save clocks</button></div><p id="ckmsg" class="hint">Blood and injury time never add to the match clock.</p></div>'
-    + '<div id="tlog"></div>';
-  renderTableLog('tlog', tid, '1', name);
+    + '<div id="tboardlog"></div>';
+  wirePicker();
+  renderTableLog('tboardlog', tid, tbl, name);
   body.querySelectorAll('.scorebtn').forEach((b) => b.onclick = async () => {
     const side = b.dataset.s, pts = Number(b.dataset.p);
     const live = await api('/table/score', { method: 'POST', body: { tournamentId: tid, bracketId: m.bracket_id, matchId: m.match_id, play: { side, points: pts, label: side + ' +' + pts } } });
@@ -918,14 +935,14 @@ async function tableMode(resumeName) {
           + outcomeLabel(s.outcome || finOutcome) + ' ' + (s.red ?? '?') + '–' + (s.green ?? '?');
         let nextHtml = '';
         try {
-          const nq = await api('/table/' + tid + '/queue?table=1');
+          const nq = await api('/table/' + tid + '/queue?table=' + encodeURIComponent(tbl));
           const nx = (nq.queue || [])[0];
           nextHtml = nx ? '<p>Next: Match ' + esc(nx.bout_number ?? '?') + ' — ' + esc(tbdName(nx.a)) + ' vs ' + esc(tbdName(nx.b)) + '</p>'
             + '<div class="row"><button class="big primary" id="finnext">Next match</button></div>'
             : '<p>Done — no more matches.</p><div class="row"><button class="big" id="finnext">Back to table</button></div>';
         } catch { nextHtml = '<div class="row"><button class="big" id="finnext">Next match</button></div>'; }
         fpanel().innerHTML = '<div class="panel"><h3>Match finalized.</h3><p>' + line + '</p>' + nextHtml + '</div>';
-        document.getElementById('finnext').onclick = () => tableMode(name);
+        document.getElementById('finnext').onclick = () => tableMode(name, tbl);
       } catch (e) {
         lockBoard(false);
         fpanel().innerHTML = '<div class="panel"><h3>Could not finalize</h3><p>' + esc(e.message) + '</p>'
@@ -1266,7 +1283,9 @@ async function notesView() {
       document.getElementById('sharerevoke').onclick = async () => {
         try {
           await api('/sharing/revoke', { method: 'POST', body: { token: inv.token } });
-          stat.innerHTML = '<p class="clear">Revoked — the scan code and manual code no longer work.</p>';
+          // Hide the dead credentials: the QR and manual code no longer work,
+          // so they no longer display. Only the note remains.
+          msg.innerHTML = '<p class="clear">Revoked — the scan code and manual code no longer work, so they are hidden. Create a new invite to share again.</p>';
         } catch (e) { stat.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
       };
     } catch (e) { msg.innerHTML = '<p class="held">' + esc(e.message) + '</p>'; }
